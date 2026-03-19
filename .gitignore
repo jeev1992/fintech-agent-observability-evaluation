@@ -8,3 +8,4 @@ env/
 chroma_db/
 *.log
 .claude/
+.deepeval/

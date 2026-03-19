@@ -1,12 +1,21 @@
 """
-Module B Demo: Evaluation with LangSmith + DeepEval
+Module B Demo: Evaluation with LangSmith
 ------------------------------------------------------
-Demonstrates the full evaluation pipeline for a multi-agent system:
-dataset creation, custom evaluators, A/B comparison, MRR, DeepEval, G-Eval.
+Demonstrates evaluation dataset creation and A/B experiment comparison
+for a multi-agent system using LangSmith.
 
-Segments covered:
-  5. Dataset creation & upload
-  7. A/B experiment comparison
+What this demo covers:
+  - Creating a labeled evaluation dataset (15 examples, all agent paths)
+  - Two custom evaluators (routing_accuracy, keyword_correctness)
+  - A/B experiment: chunk_size=200 (v1) vs chunk_size=1500 (v2)
+  - num_repetitions=3 for statistically meaningful results
+  - Hill-climbing loop: observe low score → change one variable → re-evaluate
+
+What this demo does NOT cover (see exercise.py / solution.py):
+  - LLM-as-judge evaluators (faithfulness, correctness)
+  - MRR (Mean Reciprocal Rank) for retrieval quality
+  - DeepEval metrics (faithfulness, hallucination, answer relevancy)
+  - G-Eval custom criteria (empathy scoring)
 """
 
 import os
@@ -15,6 +24,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langsmith import Client
 from langsmith.evaluation import evaluate
+
+from eval_dataset import DATASET_NAME, EVAL_EXAMPLES
 
 load_dotenv()
 
@@ -32,8 +43,8 @@ print("Connected to LangSmith.")
 # ---------------------------------------------------------------------------
 # 2. SEGMENT 5: Create the evaluation dataset
 # ---------------------------------------------------------------------------
-DATASET_NAME = "fintech-agent-eval"
-
+# Dataset examples are defined in eval_dataset.py (shared by exercise/solution).
+# Demo always force-recreates to ensure a clean slate.
 existing = list(client.list_datasets(dataset_name=DATASET_NAME))
 if existing:
     print(f"Dataset '{DATASET_NAME}' already exists. Deleting and recreating...")
@@ -46,141 +57,21 @@ dataset = client.create_dataset(
         "Covers policy questions, account lookups, and escalation scenarios."
     ),
 )
-print(f"Created dataset: '{DATASET_NAME}' (id: {dataset.id})")
-
-# ---------------------------------------------------------------------------
-# 3. Define evaluation examples
-# ---------------------------------------------------------------------------
-examples = [
-    # --- Policy: Account Fees ---
-    {
-        "inputs": {"question": "What is the overdraft fee?"},
-        "outputs": {
-            "answer": "The overdraft fee is $35 per transaction, with a maximum of 3 overdraft fees per day ($105 maximum).",
-            "intent": "policy",
-        },
-    },
-    {
-        "inputs": {"question": "What is the monthly fee for a Premium Checking account?"},
-        "outputs": {
-            "answer": "The Premium Checking account has a monthly fee of $12.99, which is waived if the daily balance stays above $1,500 or with a direct deposit of $500 or more per month.",
-            "intent": "policy",
-        },
-    },
-    {
-        "inputs": {"question": "How much does it cost to use an out-of-network ATM?"},
-        "outputs": {
-            "answer": "Out-of-network ATM transactions cost $3.00 per transaction. The ATM owner may also charge an additional fee.",
-            "intent": "policy",
-        },
-    },
-    # --- Policy: Loans ---
-    {
-        "inputs": {"question": "What credit score do I need for a personal loan?"},
-        "outputs": {
-            "answer": "You need a credit score of 620 or higher to qualify for a personal loan.",
-            "intent": "policy",
-        },
-    },
-    {
-        "inputs": {"question": "Is there a prepayment penalty on personal loans?"},
-        "outputs": {
-            "answer": "No, there is no prepayment penalty on personal loans at SecureBank.",
-            "intent": "policy",
-        },
-    },
-    # --- Policy: Transfers ---
-    {
-        "inputs": {"question": "How much does a domestic wire transfer cost?"},
-        "outputs": {
-            "answer": "A domestic outgoing wire transfer costs $25. Incoming domestic wires are free.",
-            "intent": "policy",
-        },
-    },
-    {
-        "inputs": {"question": "Can I cancel a wire transfer?"},
-        "outputs": {
-            "answer": "Wire transfers cannot be reversed once sent. Contact us immediately if sent in error; recall requests are not guaranteed and may take 2 to 4 weeks.",
-            "intent": "policy",
-        },
-    },
-    # --- Policy: Fraud ---
-    {
-        "inputs": {"question": "How long do I have to report unauthorized transactions?"},
-        "outputs": {
-            "answer": "You should report unauthorized transactions within 60 days of the statement date. Reporting within 2 business days limits your liability to $50.",
-            "intent": "policy",
-        },
-    },
-    # --- Account Status ---
-    {
-        "inputs": {"question": "What is the balance on ACC-12345?"},
-        "outputs": {
-            "answer": "Account ACC-12345 (Premium Checking) has a balance of $12,450.75 and is active.",
-            "intent": "account_status",
-        },
-    },
-    {
-        "inputs": {"question": "Show me recent transactions for ACC-67890."},
-        "outputs": {
-            "answer": "Account ACC-67890 recent transactions include a debit card purchase at a grocery store for $67.30 on March 14, a direct deposit of $1,500 on March 11, and a bill pay of $145.00 on March 10.",
-            "intent": "account_status",
-        },
-    },
-    {
-        "inputs": {"question": "What's the status of ACC-11111?"},
-        "outputs": {
-            "answer": "Account ACC-11111 is currently frozen due to suspected unauthorized activity and is under fraud review.",
-            "intent": "account_status",
-        },
-    },
-    {
-        "inputs": {"question": "What is the balance on ACC-99999?"},
-        "outputs": {
-            "answer": "I couldn't find account ACC-99999 in our system.",
-            "intent": "account_status",
-        },
-    },
-    # --- Escalation ---
-    {
-        "inputs": {
-            "question": "This is ridiculous! Someone withdrew $15,000 from my savings without my permission!"
-        },
-        "outputs": {
-            "answer": "I sincerely apologize for this alarming situation. A senior fraud specialist will follow up. Contact fraud@securebank.com or 1-800-555-0199 option 1.",
-            "intent": "escalation",
-        },
-    },
-    {
-        "inputs": {"question": "I want to speak to a manager. Your fees are outrageous!"},
-        "outputs": {
-            "answer": "I'm sorry for the frustration. I'm escalating this to a senior specialist who will reach out shortly.",
-            "intent": "escalation",
-        },
-    },
-    # --- Out of scope ---
-    {
-        "inputs": {"question": "What stock should I invest in?"},
-        "outputs": {
-            "answer": "I'm sorry, I don't have information about that in our current policies. Please contact our support team at support@securebank.com for further assistance.",
-            "intent": "policy",
-        },
-    },
-]
-
-# Upload examples
 client.create_examples(
-    inputs=[e["inputs"] for e in examples],
-    outputs=[e["outputs"] for e in examples],
+    inputs=[e["inputs"] for e in EVAL_EXAMPLES],
+    outputs=[e["outputs"] for e in EVAL_EXAMPLES],
     dataset_id=dataset.id,
 )
-print(f"Uploaded {len(examples)} examples to '{DATASET_NAME}'.\n")
+print(f"Created dataset '{DATASET_NAME}' with {len(EVAL_EXAMPLES)} examples.\n")
 
 # ---------------------------------------------------------------------------
-# 4. Build the agent pipeline
+# 4. Build the agent pipeline (v1 — small chunks)
 # ---------------------------------------------------------------------------
-print("Building FinTech support agent...")
-agent = build_support_agent(collection_name="eval_demo")
+# v1 uses chunk_size=200: policy documents get split into tiny fragments.
+# Key details like "$35 per transaction, maximum 3 per day ($105)" often
+# get split across chunks, so the LLM only sees partial information.
+print("Building FinTech support agent (v1 — chunk_size=200, fragmented)...")
+agent = build_support_agent(collection_name="eval_demo_v1", chunk_size=200, chunk_overlap=20)
 app = agent["app"]
 print("Pipeline ready.\n")
 
@@ -199,6 +90,28 @@ def run_agent(inputs):
 
 # ---------------------------------------------------------------------------
 # 6. Evaluators
+# ---------------------------------------------------------------------------
+# COMPREHENSIVE EVALUATOR MAP for a multi-agent FinTech system:
+#
+#   Evaluator                  | Layer          | What it measures
+#   ---------------------------+----------------+------------------------------------------
+#   routing_evaluator          | Supervisor     | Did the intent classifier pick the right agent?
+#   keyword_correctness        | All agents     | Do key numbers/amounts appear in the response?
+#   faithfulness_evaluator     | Policy agent   | Is the answer grounded in retrieved context?
+#   correctness_evaluator      | Account agent  | Do account details match the ground truth?
+#   mrr_evaluator              | Retriever      | Is the relevant doc ranked near the top?
+#   hallucination_evaluator    | End-to-end     | Does the response contain made-up info?
+#   answer_relevancy_evaluator | End-to-end     | Does the response actually address the question?
+#   empathy_evaluator (G-Eval) | Escalation     | Is the tone warm, empathetic, and professional?
+#   pii_leakage_evaluator      | All agents     | Does the response leak SSNs or sensitive data?
+#   latency_evaluator          | All agents     | Did the agent respond within acceptable time?
+#
+# For this demo, we use only TWO to keep it focused:
+#   1. routing_evaluator     — the most critical metric (wrong agent = wrong answer)
+#   2. keyword_correctness   — a simple, interpretable metric that visibly improves
+#                              when we increase top_k (the hill-climbing variable)
+#
+# The exercise (exercise.py) and solution (solution.py) implement the full set.
 # ---------------------------------------------------------------------------
 def routing_evaluator(run, example):
     """Check if the supervisor routed to the correct agent."""
@@ -228,31 +141,60 @@ def keyword_correctness(run, example):
 # ---------------------------------------------------------------------------
 # 7. SEGMENT 7: Run Experiment A (baseline)
 # ---------------------------------------------------------------------------
-print("Running Experiment A (baseline)...")
+# num_repetitions=3: run each example 3 times and average the scores.
+# LLM outputs are non-deterministic — a single run can be noisy.
+# 3 repetitions gives statistically meaningful averages.
+print("Running Experiment A (baseline, 3 repetitions)...")
 results_a = evaluate(
     run_agent,
     data=DATASET_NAME,
     evaluators=[routing_evaluator, keyword_correctness],
     experiment_prefix="fintech-v1-baseline",
-    metadata={"model": "gpt-4o-mini", "version": "baseline"},
+    num_repetitions=3,
+    metadata={"model": "gpt-4o-mini", "version": "baseline", "chunk_size": 200},
 )
 
 print("\n>>> Experiment A complete. View results in LangSmith.\n")
 
 # ---------------------------------------------------------------------------
-# 8. SEGMENT 7: Run Experiment B (same agent — in practice you'd change
-#    the prompt, model, or retrieval config)
+# 8. SEGMENT 7: Run Experiment B — better chunking (one change: chunk_size)
 # ---------------------------------------------------------------------------
-# In a real A/B test, you'd modify the agent. Here we demonstrate the workflow.
-print("Running Experiment B (same agent — compare in LangSmith)...")
+# A proper A/B test changes ONE variable. Here we only increase chunk_size:
+#   v1: chunk_size=200  (tiny fragments, numbers split from context)
+#   v2: chunk_size=1500 (full sections intact, all details preserved)
+# Same model, same prompt, same top_k — only chunking strategy changes.
+
+print("Building improved agent (v2 — chunk_size=1500)...")
+agent_v2 = build_support_agent(collection_name="eval_demo_v2", chunk_size=1500, chunk_overlap=100)
+app_v2 = agent_v2["app"]
+
+
+def run_agent_v2(inputs):
+    """Run the improved agent and return outputs for evaluation."""
+    result = ask(app_v2, inputs["question"])
+    return {
+        "answer": result["response"],
+        "intent": result["intent"],
+        "retrieved_sources": result["retrieved_sources"],
+        "context": result["context"],
+    }
+
+
+print("Running Experiment B (chunk_size=1500, 3 repetitions)...")
 results_b = evaluate(
-    run_agent,
+    run_agent_v2,
     data=DATASET_NAME,
     evaluators=[routing_evaluator, keyword_correctness],
-    experiment_prefix="fintech-v2-comparison",
-    metadata={"model": "gpt-4o-mini", "version": "comparison"},
+    experiment_prefix="fintech-v2-improved",
+    num_repetitions=3,
+    metadata={"model": "gpt-4o-mini", "version": "improved-chunking", "chunk_size": 1500},
 )
 
 print("\n>>> Experiment B complete.")
-print(">>> Open LangSmith → Datasets → fintech-agent-eval → Compare Experiments")
-print(">>> See side-by-side scores for v1-baseline vs v2-comparison.")
+print(">>> To compare side-by-side in LangSmith:")
+print(">>>   1. Open LangSmith → Datasets & Experiments → fintech-agent-eval")
+print(">>>   2. On the Experiments tab, check the boxes next to both experiments")
+print(">>>   3. Click the 'Compare' button at the bottom of the page")
+print(">>>")
+print(">>> One change: chunk_size=200 → chunk_size=1500")
+print(">>> Watch keyword_correctness improve from v1 → v2.")

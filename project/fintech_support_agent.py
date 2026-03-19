@@ -87,12 +87,24 @@ class SupportState(TypedDict):
     retrieved_sources: list[str]
 
 
+DEFAULT_POLICY_SYSTEM_PROMPT = (
+    "You are a helpful customer support agent for SecureBank.\n"
+    "Answer the customer's question based ONLY on the provided policy documents.\n"
+    "If the answer is not found in the provided context, say:\n"
+    "\"I'm sorry, I don't have information about that in our current policies. "
+    "Please contact our support team at support@securebank.com for further assistance.\"\n"
+    "Do not make up information. Be concise, friendly, and professional.\n"
+    "NEVER disclose sensitive account data (SSN, full account numbers) in policy responses."
+)
+
+
 def build_support_agent(
     collection_name="support_docs_multi",
     chunk_size=1000,
     chunk_overlap=100,
     top_k=3,
     model="gpt-4o-mini",
+    policy_system_prompt=None,
 ):
     """
     Build and return the multi-agent FinTech support system.
@@ -137,15 +149,9 @@ def build_support_agent(
     llm = ChatOpenAI(model=model, temperature=0)
 
     # --- RAG chain for Policy Agent ---
+    _policy_sys = policy_system_prompt or DEFAULT_POLICY_SYSTEM_PROMPT
     policy_prompt = ChatPromptTemplate.from_messages([
-        ("system",
-         "You are a helpful customer support agent for SecureBank.\n"
-         "Answer the customer's question based ONLY on the provided policy documents.\n"
-         "If the answer is not found in the provided context, say:\n"
-         "\"I'm sorry, I don't have information about that in our current policies. "
-         "Please contact our support team at support@securebank.com for further assistance.\"\n"
-         "Do not make up information. Be concise, friendly, and professional.\n"
-         "NEVER disclose sensitive account data (SSN, full account numbers) in policy responses."),
+        ("system", _policy_sys),
         ("human",
          "Context from our policy documents:\n\n{context}\n\n"
          "Customer question: {question}"),

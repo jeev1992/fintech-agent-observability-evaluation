@@ -23,7 +23,7 @@ from fintech_support_agent import build_support_agent, ask
 
 # --- SOLUTION 2: Build the multi-agent pipeline ---
 print("\nBuilding FinTech support agent...")
-agent = build_support_agent(collection_name="observability_exercise")
+agent = build_support_agent(collection_name="observability_solution")
 app = agent["app"]
 print("Pipeline ready.\n")
 

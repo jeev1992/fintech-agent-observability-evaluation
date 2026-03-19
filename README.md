@@ -337,6 +337,106 @@ ESCALATION: "I'm furious! Nobody is helping!"
 
 ## Troubleshooting
 
+### Dependency Installation Issues
+
+#### `ResolutionImpossible` / Conflicting Dependencies
+
+The pinned versions in `requirements.txt` are tested to work together. If you see dependency conflicts, ensure you are using the provided `requirements.txt` without modifications. Key version constraints to be aware of:
+
+| Package | Constraint | Reason |
+|---|---|---|
+| `langsmith` | `<0.3,>=0.1.17` | `langchain==0.3.14` requires `langsmith<0.3` |
+| `python-dotenv` | `>=1.1.1` | `deepeval>=3.8.9` requires `python-dotenv>=1.1.1` |
+| `guardrails-ai` | `>=0.6.0,<0.9.0` | Versions 0.9+ require `langchain-core>=1.0.0`, which conflicts with the langchain 0.3.x ecosystem (`langchain-core<0.4.0`) |
+
+> **Tip**: `langchain-core` and `langchain-text-splitters` should **not** be pinned directly — they are resolved automatically as transitive dependencies of `langchain` and `langchain-openai`.
+
+If you still encounter conflicts, recreate your virtual environment from scratch:
+```bash
+# Remove and recreate the venv
+rm -rf .venv               # macOS/Linux
+Remove-Item -Recurse .venv # Windows PowerShell
+
+python -m venv .venv
+# Activate (see Step 4), then:
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### `error: Microsoft Visual C++ 14.0 or greater is required` (Windows)
+
+The `chroma-hnswlib` package (required by `chromadb`) must be compiled from C++ source on Windows. This requires the **Microsoft Visual C++ Build Tools**.
+
+**Fix — install build tools via `winget`:**
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+```
+
+Or download manually from [https://visualstudio.microsoft.com/visual-cpp-build-tools/](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the **"Desktop development with C++"** workload.
+
+After installation, **close and reopen your terminal**, then re-run:
+```powershell
+pip install -r requirements.txt
+```
+
+#### `fatal error C1083: Cannot open include file: 'float.h'` (Windows)
+
+If you already have Visual C++ Build Tools installed but the `chroma-hnswlib` build fails with:
+```
+fatal error C1083: Cannot open include file: 'float.h': No such file or directory
+```
+
+This means the **Windows 10/11 SDK** is missing. The MSVC compiler is installed but it cannot find the Universal CRT headers (`float.h`, `stdlib.h`, etc.) that ship with the Windows SDK.
+
+**Fix — install the Windows SDK:**
+
+*Option A — Visual Studio Installer (recommended):*
+1. Open **Visual Studio Installer** (search for it in the Start menu)
+2. Click **Modify** on **"Build Tools for Visual Studio 2022"**
+3. Under **Individual Components**, check **"Windows 10 SDK"** (or **"Windows 11 SDK"**)
+4. Click **Modify** and wait for the install to complete
+
+*Option B — via `winget`:*
+```powershell
+winget install Microsoft.WindowsSDK.10.0.22621
+```
+
+After installing the SDK, **close and reopen your terminal**, then re-run:
+```powershell
+pip install -r requirements.txt
+```
+
+> **How to verify the fix**: After installing, check that the SDK headers exist:
+> ```powershell
+> Test-Path "C:\Program Files (x86)\Windows Kits\10\Include"
+> ```
+> This should return `True`.
+
+#### C++ Compiler Errors on macOS / Linux
+
+The same `chroma-hnswlib` compilation can fail on other platforms if a C++ compiler is missing:
+
+**macOS** — install Xcode command-line tools:
+```bash
+xcode-select --install
+```
+
+**Linux (Debian/Ubuntu)** — install build essentials:
+```bash
+sudo apt-get update && sudo apt-get install -y build-essential
+```
+
+**Linux (Fedora/RHEL)**:
+```bash
+sudo dnf groupinstall "Development Tools"
+```
+
+After installing the compiler, re-run `pip install -r requirements.txt`.
+
+---
+
+### Common Runtime Errors
+
 **`ModuleNotFoundError: No module named 'langchain'`**
 ```bash
 pip install -r requirements.txt
@@ -380,8 +480,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\.venv\Scripts\Acti
 
 **`FileNotFoundError` running module scripts**
 ```bash
-# Run from the Week 8/ directory, not from inside a module folder
-cd "Week 8"
+# Run from the project root directory, not from inside a module folder
+cd "fintech-agent-observability-evaluation"
 python module_a_observability/demo.py
 ```
 

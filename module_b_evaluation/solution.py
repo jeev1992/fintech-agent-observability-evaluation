@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langsmith.evaluation import evaluate
+from langsmith import Client
+
+from eval_dataset import DATASET_NAME, EVAL_EXAMPLES, recreate_dataset
+from eval_dataset import HILL_CLIMB_DATASET_NAME, recreate_hill_climb_dataset
 
 load_dotenv()
 
@@ -28,6 +32,9 @@ app = agent["app"]
 retriever = agent["retriever"]
 judge_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 print("Pipeline ready.\n")
+
+# --- Recreate evaluation dataset (clean slate each run) ---
+recreate_dataset()
 
 # ===================================================================
 # SEGMENT 6: LangSmith Evaluators
@@ -136,7 +143,7 @@ print("Running evaluation with all evaluators...")
 
 results = evaluate(
     run_agent,
-    data="fintech-agent-eval",
+    data=DATASET_NAME,
     evaluators=[routing_evaluator, faithfulness_evaluator, correctness_evaluator],
     experiment_prefix="fintech-eval-solution",
     metadata={"model": "gpt-4o-mini"},
@@ -154,16 +161,23 @@ print("SEGMENT 8: MRR COMPUTATION")
 print("=" * 60)
 
 mrr_queries = [
-    {"query": "What is the overdraft fee?", "relevant_source": "account_fees.md"},
+    # Easy — clearly maps to one document
     {"query": "What credit score do I need for a personal loan?", "relevant_source": "loan_policy.md"},
-    {"query": "How much does a domestic wire transfer cost?", "relevant_source": "transfer_policy.md"},
-    {"query": "How long do I have to report fraud?", "relevant_source": "fraud_policy.md"},
-    {"query": "What is the interest rate on a High-Yield Savings account?", "relevant_source": "account_fees.md"},
-    {"query": "What is the late payment fee for loans?", "relevant_source": "loan_policy.md"},
-    {"query": "Can I reverse a wire transfer?", "relevant_source": "transfer_policy.md"},
-    {"query": "What is the maximum overdraft fees per day?", "relevant_source": "account_fees.md"},
-    {"query": "What is the APR range for auto loans?", "relevant_source": "loan_policy.md"},
     {"query": "How do I report identity theft?", "relevant_source": "fraud_policy.md"},
+    # Ambiguous — wire transfer fees appear in BOTH account_fees.md and transfer_policy.md
+    {"query": "How much does an international wire transfer cost?", "relevant_source": "transfer_policy.md"},
+    {"query": "What are the wire transfer fees?", "relevant_source": "account_fees.md"},
+    # Cross-domain — "interest rate" matches savings APY AND loan APR
+    {"query": "What interest rate will I get?", "relevant_source": "account_fees.md"},
+    {"query": "What is the APR on a used car loan?", "relevant_source": "loan_policy.md"},
+    # Confusing — "late fee" could match overdraft fee OR loan late payment fee
+    {"query": "What happens if I'm late on a payment?", "relevant_source": "loan_policy.md"},
+    # Overlapping term — "card replacement" is in account_fees.md AND fraud_policy.md
+    {"query": "How much does a replacement debit card cost?", "relevant_source": "account_fees.md"},
+    # Vague — "daily limit" is only in transfer_policy.md but could match account_fees.md
+    {"query": "What are the daily transaction limits?", "relevant_source": "transfer_policy.md"},
+    # Specific but tricky — "two-factor authentication" in both fraud_policy.md and transfer_policy.md
+    {"query": "When is two-factor authentication required?", "relevant_source": "fraud_policy.md"},
 ]
 
 reciprocal_ranks = []
@@ -198,22 +212,26 @@ try:
     from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, HallucinationMetric
     from deepeval import assert_test
 
-    # Run 5 queries to get actual outputs
+    # Run 3 queries — 2 clean passes + 1 that should fail
     eval_queries = [
+        # Clean pass — straightforward single-doc lookup
         "What is the overdraft fee?",
-        "How much does a domestic wire transfer cost?",
+        # Clean pass — clear policy question
         "What credit score do I need for a personal loan?",
-        "How long do I have to report unauthorized transactions?",
-        "What is the monthly fee for a Premium Checking account?",
+        # Likely fail — vague query, retriever may pull wrong doc, agent may
+        # hallucinate or deny having info despite context containing rates
+        "What interest rate will I get?",
     ]
 
     test_cases = []
     for query in eval_queries:
         result = ask(app, query)
+        ctx = [result["context"]] if result["context"] else ["No context retrieved."]
         test_cases.append(LLMTestCase(
             input=query,
             actual_output=result["response"],
-            retrieval_context=[result["context"]] if result["context"] else ["No context retrieved."],
+            retrieval_context=ctx,
+            context=ctx,
         ))
 
     # Run metrics
@@ -227,6 +245,8 @@ try:
             metric.measure(tc)
             print(f"    {metric.__class__.__name__}: {metric.score:.2f} "
                   f"({'PASS' if metric.is_successful() else 'FAIL'})")
+            if hasattr(metric, 'reason') and metric.reason:
+                print(f"      Reason: {metric.reason[:120]}")
 
 except ImportError:
     print("  DeepEval not installed. Run: pip install deepeval")
@@ -283,6 +303,185 @@ try:
 except ImportError:
     print("  DeepEval not installed. Run: pip install deepeval")
     print("  Skipping G-Eval empathy metric.")
+
+
+# ===================================================================
+# SEGMENT 11: Dataset Enhancement
+# ===================================================================
+
+print("\n" + "=" * 60)
+print("SEGMENT 11: DATASET ENHANCEMENT")
+print("=" * 60)
+
+# --- SOLUTION 9: Add edge-case examples ---
+new_examples = [
+    # Multi-part question (asks two things at once)
+    {
+        "inputs": {
+            "question": "What is the overdraft fee and is there a daily limit?"
+        },
+        "outputs": {
+            "answer": "The overdraft fee is $35 per transaction, with a maximum of 3 overdraft fees per day ($105 maximum).",
+            "intent": "policy",
+        },
+    },
+    # Misspelled / wrong account number
+    {
+        "inputs": {"question": "What is the balance on ACC-00000?"},
+        "outputs": {
+            "answer": "I couldn't find account ACC-00000 in our system.",
+            "intent": "account_status",
+        },
+    },
+    # Boundary-case policy question (exact threshold)
+    {
+        "inputs": {
+            "question": "If I keep exactly $1,500 in my Premium Checking, do I still pay the monthly fee?"
+        },
+        "outputs": {
+            "answer": "No, the monthly fee of $12.99 is waived if the daily balance stays above $1,500.",
+            "intent": "policy",
+        },
+    },
+]
+
+client = Client()
+existing = list(client.list_datasets(dataset_name=DATASET_NAME))
+if existing:
+    client.create_examples(
+        inputs=[e["inputs"] for e in new_examples],
+        outputs=[e["outputs"] for e in new_examples],
+        dataset_id=existing[0].id,
+    )
+    print(f"Added {len(new_examples)} new edge-case examples to '{DATASET_NAME}'.")
+else:
+    print(f"Dataset '{DATASET_NAME}' not found — this shouldn't happen.")
+
+
+# ===================================================================
+# SEGMENT 12: Hill Climbing
+# ===================================================================
+
+print("\n" + "=" * 60)
+print("SEGMENT 12: HILL CLIMBING (top_k=1 vs top_k=5)")
+print("=" * 60)
+
+# --- Recreate the hill climbing dataset (clean slate) ---
+recreate_hill_climb_dataset()
+
+# --- Evaluators from demo (provided) ---
+def routing_evaluator_hc(run, example):
+    predicted = run.outputs.get("intent", "")
+    expected = example.outputs.get("intent", "")
+    return {"key": "routing_accuracy", "score": 1.0 if predicted == expected else 0.0}
+
+
+def keyword_correctness_hc(run, example):
+    import re
+    actual = run.outputs.get("answer", "").lower()
+    expected = example.outputs.get("answer", "").lower()
+    key_terms = re.findall(r"\$[\d,.]+|\d+(?:\.\d+)?%?|acc-\d+", expected)
+    if not key_terms:
+        return {"key": "keyword_correctness", "score": 0.5}
+    matches = sum(1 for term in key_terms if term in actual)
+    return {"key": "keyword_correctness", "score": matches / len(key_terms)}
+
+
+# --- SOLUTION 10: Correctness evaluator ---
+HC_CORRECTNESS_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are an expert evaluator. Compare the AI's answer to the expected answer.\n\n"
+     "Score 1.0 = all key facts correct\n"
+     "Score 0.5 = partially correct (some facts right, some missing or wrong)\n"
+     "Score 0.0 = key facts wrong or missing\n\n"
+     "Focus on factual accuracy: numbers, amounts, percentages, thresholds.\n"
+     "Exact wording does not matter — only factual content.\n\n"
+     'Respond ONLY with JSON: {{"score": <float>, "reason": "<one sentence>"}}'),
+    ("human",
+     "Question: {question}\n\nExpected answer: {expected}\n\nActual answer: {actual}"),
+])
+
+
+def correctness_evaluator_hc(run, example):
+    actual = run.outputs.get("answer", "")
+    expected = example.outputs.get("answer", "")
+    question = example.inputs.get("question", "")
+
+    if not actual or not expected:
+        return {"key": "correctness", "score": 0.0}
+
+    messages = HC_CORRECTNESS_PROMPT.format_messages(
+        question=question, expected=expected, actual=actual
+    )
+    response = judge_llm.invoke(messages).content.strip()
+
+    try:
+        start, end = response.find("{"), response.rfind("}") + 1
+        parsed = json.loads(response[start:end])
+        score = float(parsed.get("score", 0.5))
+        return {"key": "correctness", "score": score}
+    except (json.JSONDecodeError, ValueError):
+        return {"key": "correctness", "score": 0.5}
+
+
+hc_evaluators = [routing_evaluator_hc, keyword_correctness_hc, correctness_evaluator_hc]
+
+# --- SOLUTION 10a: Baseline (top_k=1, small chunks) ---
+# With chunk_size=200, each chunk is a tiny fragment. top_k=1 returns only
+# one fragment — often incomplete. top_k=5 assembles more context.
+print("\nBuilding baseline agent (chunk_size=200, top_k=1)...")
+agent_v1 = build_support_agent(collection_name="hill_climb_v1", chunk_size=200, chunk_overlap=20, top_k=1)
+app_v1 = agent_v1["app"]
+
+
+def run_agent_v1(inputs):
+    result = ask(app_v1, inputs["question"])
+    return {
+        "answer": result["response"],
+        "intent": result["intent"],
+        "context": result["context"],
+        "retrieved_sources": result["retrieved_sources"],
+    }
+
+
+print("Running baseline evaluation (chunk_size=200, top_k=1)...")
+results_v1 = evaluate(
+    run_agent_v1,
+    data=HILL_CLIMB_DATASET_NAME,
+    evaluators=hc_evaluators,
+    experiment_prefix="hill-climb-topk1",
+    metadata={"model": "gpt-4o-mini", "chunk_size": 200, "top_k": 1},
+)
+
+# --- SOLUTION 10b: Improved (top_k=5, same small chunks) ---
+print("\nBuilding improved agent (chunk_size=200, top_k=5)...")
+agent_v2 = build_support_agent(collection_name="hill_climb_v2", chunk_size=200, chunk_overlap=20, top_k=5)
+app_v2 = agent_v2["app"]
+
+
+def run_agent_v2(inputs):
+    result = ask(app_v2, inputs["question"])
+    return {
+        "answer": result["response"],
+        "intent": result["intent"],
+        "context": result["context"],
+        "retrieved_sources": result["retrieved_sources"],
+    }
+
+
+print("Running improved evaluation (chunk_size=200, top_k=5)...")
+results_v2 = evaluate(
+    run_agent_v2,
+    data=HILL_CLIMB_DATASET_NAME,
+    evaluators=hc_evaluators,
+    experiment_prefix="hill-climb-topk5",
+    metadata={"model": "gpt-4o-mini", "chunk_size": 200, "top_k": 5},
+)
+
+print("\n>>> Hill climbing complete.")
+print(">>> Compare in LangSmith: Datasets → fintech-hill-climb-eval → select both → Compare")
+print(">>> Watch the 'correctness' evaluator improve from top_k=1 → top_k=5.")
+print(">>> The demo changed chunk_size; you just changed top_k on a new dataset.")
 
 print("\n>>> All evaluation segments complete.")
 print(">>> View results in LangSmith: https://smith.langchain.com")

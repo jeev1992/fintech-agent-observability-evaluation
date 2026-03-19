@@ -26,14 +26,23 @@ Without traces, you'd guess. With LangSmith, you see *exactly* which step failed
 
 This is the instructor-led demo. It does two things:
 
-1. **Silent failure demo** — Runs tricky queries (e.g., "How much does overdraft protection cost?") where the agent gives plausible but potentially wrong answers. Then you open LangSmith and find the exact failure point in the trace tree.
+1. **Silent failure demo** — Runs 4 deliberately tricky queries that each produce a different type of failure. The agent gives plausible-sounding answers, but the demo prints the expected correct answer alongside so you can spot the gap. Then you open LangSmith to find WHERE it went wrong.
 
 2. **Tagging runs** — Re-runs queries with tags (`agent-type:policy`, `agent-type:account`, `agent-type:escalation`) so you can filter them in the LangSmith monitoring dashboard.
 
-**What to watch for when you run it:**
-- Does the agent confuse the overdraft fee ($35) with the overdraft protection transfer fee ($12)?
-- Can you find the trace in LangSmith and identify which run produced the wrong number?
-- Which agent type uses the most tokens?
+**The 4 failure modes demonstrated:**
+
+| Query | Failure Mode | What Goes Wrong |
+|---|---|---|
+| "How much does overdraft protection cost?" | Retrieval | Retriever returns $35 fee chunk instead of $12 protection chunk |
+| "I'm really upset about $105! What is your overdraft policy?" | Routing | Emotional tone tricks supervisor into escalation instead of policy |
+| "Does ACC-12345 qualify for the fee waiver?" | Multi-hop | Needs both account lookup AND policy lookup, but supervisor picks only one |
+| "How much does a replacement debit card cost?" | Conflicting sources | account_fees.md says $5, fraud_policy.md says Free |
+
+**What to do after running it:**
+- Open LangSmith and find the 4 traces
+- For each trace, click into the run tree and identify: which agent was selected, what documents were retrieved, and whether the context actually contained the correct answer
+- This is the core skill: wrong answer → open trace → find the exact failing step
 
 ### `exercise.py` — Your turn: setup, trace, debug
 
@@ -76,7 +85,7 @@ python module_a_observability/solution.py
 ```
 
 **What to expect from `demo.py`:**
-- It runs 3 tricky queries and 3 tagged queries
+- It runs 4 tricky queries and 3 tagged queries
 - All runs are sent to LangSmith automatically
 - Open https://smith.langchain.com to see the trace tree for each query
 - Policy queries show 2+ LLM calls (supervisor + RAG); escalation queries are cheapest

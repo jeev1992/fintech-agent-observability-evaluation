@@ -25,43 +25,87 @@ from fintech_support_agent import build_support_agent, ask
 # ---------------------------------------------------------------------------
 # 1. Build the multi-agent pipeline with tracing enabled
 # ---------------------------------------------------------------------------
+# Use chunk_size=200 to make retrieval fragile — tiny fragments mean key
+# details like "$35 per transaction, maximum 3 per day ($105)" often get
+# split across chunks, causing partial or wrong answers.
 print("Building FinTech support agent with LangSmith tracing...")
-agent = build_support_agent(collection_name="observability_demo")
+agent = build_support_agent(collection_name="observability_demo", chunk_size=200, chunk_overlap=20)
 app = agent["app"]
 print("Pipeline ready. All runs will be traced to LangSmith.\n")
 
 # ---------------------------------------------------------------------------
 # 2. SEGMENT 1: Silent failure demo
-#    Run a query where the agent might give a plausible but wrong answer.
-#    Without traces, you can't tell WHERE it went wrong.
+#    These queries are designed to RELIABLY produce wrong or incomplete
+#    answers. Each has a specific failure mode that traces will reveal.
 # ---------------------------------------------------------------------------
 print("=" * 60)
 print("SEGMENT 1: SILENT FAILURE DEMO")
 print("=" * 60)
 
-# This query is designed to be tricky — the agent might hallucinate
-# a wrong number or retrieve the wrong policy document.
+# Each query has an expected answer and explanation of what can go wrong.
 tricky_queries = [
-    # Could confuse overdraft fee ($35) with overdraft protection transfer fee ($12)
-    "How much does overdraft protection cost?",
-    # Could hallucinate a rate not in our docs
-    "What's the interest rate on a personal loan?",
-    # Might retrieve fraud policy instead of transfer policy
-    "Can I reverse a wire transfer?",
+    {
+        "query": "How much does overdraft protection cost?",
+        "expected": "$12 per transfer from linked savings account",
+        "trap": (
+            "RETRIEVAL FAILURE: 'Overdraft protection' ($12/transfer) is a different "
+            "product than the 'overdraft fee' ($35/transaction). With small chunks, "
+            "the retriever might return the $35 chunk instead of the $12 chunk. "
+            "The agent confidently answers with the WRONG number."
+        ),
+    },
+    {
+        "query": "I'm really upset about being charged $105 in one day! What is your overdraft policy?",
+        "expected": "Overdraft fee is $35/transaction, max 3/day ($105). Should route to policy_agent.",
+        "trap": (
+            "ROUTING FAILURE: The emotional language ('really upset') may trick the "
+            "supervisor into routing to escalation_agent instead of policy_agent. "
+            "You'll get an empathetic apology instead of the actual fee breakdown."
+        ),
+    },
+    {
+        "query": "Does my account ACC-12345 qualify for the monthly fee waiver?",
+        "expected": "Yes — ACC-12345 has $12,450.75 (above $1,500 threshold for Premium Checking waiver)",
+        "trap": (
+            "MULTI-HOP FAILURE: Answering correctly requires BOTH an account lookup "
+            "(to get the balance) AND a policy lookup (to check the $1,500 waiver "
+            "threshold). The supervisor routes to only ONE agent, so the answer "
+            "will be incomplete — either the balance or the waiver rule, not both."
+        ),
+    },
+    {
+        "query": "How much does a replacement debit card cost?",
+        "expected": "$5 standard / $25 expedited (account_fees.md) — BUT fraud_policy.md says FREE for fraud cases",
+        "trap": (
+            "CONFLICTING SOURCES: account_fees.md says '$5.00' while fraud_policy.md "
+            "says 'Free'. The agent will cite whichever document the retriever "
+            "returns first, without mentioning the other. The answer is technically "
+            "correct but misleadingly incomplete."
+        ),
+    },
 ]
 
-for query in tricky_queries:
-    print(f"\nQuery: {query}")
-    result = ask(app, query)
-    print(f"Intent: {result['intent']}")
-    print(f"Answer: {result['response'][:200]}...")
-    print(f"Sources: {result['retrieved_sources']}")
-    print("-" * 40)
+for item in tricky_queries:
+    print(f"\nQuery: {item['query']}")
+    result = ask(app, item["query"])
+    print(f"Intent:   {result['intent']}")
+    print(f"Answer:   {result['response'][:200]}")
+    print(f"Sources:  {result['retrieved_sources']}")
+    print(f"Expected: {item['expected']}")
+    print(f"Trap:     {item['trap']}")
+    print("-" * 60)
 
-print("\n>>> NOW: Open LangSmith (https://smith.langchain.com)")
-print(">>> Find these traces and inspect the run tree.")
-print(">>> Can you identify where each answer's information came from?")
-print(">>> Is any answer wrong? Which step caused it?\n")
+print("\n>>> WHAT TO DO NOW:")
+print(">>>   1. Open LangSmith (https://smith.langchain.com)")
+print(">>>   2. Find these 4 traces in the 'Runs' tab")
+print(">>>   3. For each trace, click into the run tree and answer:")
+print(">>>      - Which agent did the supervisor route to?")
+print(">>>      - What documents did the retriever return (if any)?")
+print(">>>      - Does the retrieved context actually contain the answer?")
+print(">>>      - Did the LLM hallucinate, or was the context itself wrong?")
+print(">>>")
+print(">>>   This is the debugging superpower of observability:")
+print(">>>   wrong answer → open trace → find the exact failing step.\n")
 
 # ---------------------------------------------------------------------------
 # 3. SEGMENT 4: Tagging runs for comparison

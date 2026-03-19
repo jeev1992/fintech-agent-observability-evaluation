@@ -60,6 +60,29 @@ Wrong routing → wrong agent → wrong answer (regardless of agent quality)
 
 This is why **routing accuracy is the most critical metric**. Fix routing first, then retrieval, then generation.
 
+### Comprehensive Evaluator Map
+
+Here is the full set of evaluators that apply to a multi-agent FinTech system, mapped to the layer they target:
+
+| Evaluator | Layer | What it measures |
+|---|---|---|
+| `routing_evaluator` | Supervisor | Did the intent classifier pick the right agent? |
+| `keyword_correctness` | All agents | Do key numbers/amounts appear in the response? |
+| `faithfulness_evaluator` | Policy agent | Is the answer grounded in the retrieved context? |
+| `correctness_evaluator` | Account agent | Do account details match the ground truth? |
+| `mrr_evaluator` | Retriever | Is the relevant document ranked near the top? |
+| `hallucination_evaluator` | End-to-end | Does the response contain made-up information? |
+| `answer_relevancy_evaluator` | End-to-end | Does the response actually address the question? |
+| `empathy_evaluator` (G-Eval) | Escalation agent | Is the tone warm, empathetic, and professional? |
+| `pii_leakage_evaluator` | All agents | Does the response leak SSNs or sensitive data? |
+| `latency_evaluator` | All agents | Did the agent respond within acceptable time? |
+
+**In the demo (`demo.py`)**, we use only two of these — `routing_evaluator` and `keyword_correctness` — to keep the A/B comparison focused. The exercise and solution implement the broader set (faithfulness, correctness, MRR, DeepEval metrics, G-Eval empathy).
+
+**Why these two for the demo?**
+- `routing_evaluator` is the most critical metric — if routing is wrong, nothing else matters.
+- `keyword_correctness` is simple, interpretable, and visibly improves when we change `top_k` — making it ideal for demonstrating the hill-climbing loop.
+
 ---
 
 ## 2. Evaluation Datasets: The Foundation
@@ -295,22 +318,164 @@ REPEAT
 ### Running Two Experiments
 
 ```python
-# Experiment A: baseline prompt
+# Experiment A: baseline with chunk_size=200 (fragmented retrieval)
+agent_v1 = build_support_agent(chunk_size=200, chunk_overlap=20)
+
 results_a = evaluate(
     run_agent_v1,
     data="fintech-agent-eval",
     experiment_prefix="v1-baseline",
+    num_repetitions=3,  # run each example 3 times, average scores
+    metadata={"chunk_size": 200},
 )
 
-# Experiment B: improved prompt (e.g., added "quote exact numbers")
+# Experiment B: improved chunking with chunk_size=1500
+agent_v2 = build_support_agent(chunk_size=1500, chunk_overlap=100)
+
 results_b = evaluate(
     run_agent_v2,
     data="fintech-agent-eval",
-    experiment_prefix="v2-improved-prompt",
+    experiment_prefix="v2-improved",
+    num_repetitions=3,
+    metadata={"chunk_size": 1500},
 )
 ```
 
-In LangSmith: Datasets → fintech-agent-eval → Compare Experiments → select both → see side-by-side scores.
+In LangSmith: Datasets → fintech-agent-eval → select both experiments → click **Compare** at the bottom.
+
+### Hill Climbing Through A/B Testing
+
+The goal is measurable, incremental improvement — **one variable at a time**.
+
+```
+ITERATION 1: Observe
+  Run v1-baseline (chunk_size=200), check scores
+  keyword_correctness = 0.55–0.65    ← low
+  routing_accuracy    = 1.00         ← fine
+
+ITERATION 2: Hypothesize
+  "keyword_correctness is low because chunk_size=200 fragments
+   policy documents into tiny pieces. A sentence like '$35 per
+   transaction, maximum 3 per day ($105)' gets split across
+   chunks, so the LLM only sees partial information."
+
+ITERATION 3: Change ONE variable
+  Change chunk_size from 200 → 1500 (keep full sections intact)
+  Same model, same prompt, same top_k — isolate the effect of chunking
+
+ITERATION 4: Re-evaluate
+  Run v2-improved (chunk_size=1500), check scores
+  keyword_correctness = 0.80–0.90    ← improved!
+  routing_accuracy    = 1.00         ← unchanged (as expected)
+
+ITERATION 5: Confirm
+  Compare v1 vs v2 side-by-side in LangSmith
+  The improvement is real and attributable to one change
+```
+
+**Why one variable matters:** If you change the prompt AND the retrieval config AND the model at the same time, you can't tell which change helped (or hurt). Changing one variable per experiment gives you a clean signal.
+
+This is the **evaluation hill-climbing loop**: observe a low score → hypothesize a cause → change one thing → re-evaluate → confirm improvement → repeat.
+
+### Why Repetitions Matter (`num_repetitions`)
+
+LLM outputs are **non-deterministic** — even with `temperature=0`, the same query can produce slightly different responses across runs. A single evaluation run can be noisy:
+
+```
+Run 1: keyword_correctness = 0.72
+Run 2: keyword_correctness = 0.58    ← same agent, same dataset!
+Run 3: keyword_correctness = 0.68
+```
+
+If you compare v1 (single run: 0.72) vs v2 (single run: 0.68), you'd wrongly conclude v1 is better. With `num_repetitions=3`, LangSmith runs each example 3 times and averages:
+
+```
+v1 average: (0.72 + 0.58 + 0.68) / 3 = 0.66
+v2 average: (0.82 + 0.88 + 0.85) / 3 = 0.85    ← clearly better
+```
+
+**Rule of thumb:**
+- `num_repetitions=1` — fast but noisy (good for quick iteration)
+- `num_repetitions=3` — good balance of speed and reliability (what we use in the demo)
+- `num_repetitions=5+` — more robust, but slower and costs more tokens
+
+The demo uses 3 repetitions: 15 examples × 3 reps × 2 experiments = **90 total runs**.
+
+### Hill Climbing Across Multiple Dimensions
+
+In practice, a multi-agent system has many **tunable factors** and many **evaluators**. Hill climbing means making incremental changes — one factor at a time — while watching how all evaluators respond.
+
+#### The Factors You Can Change
+
+```
+RETRIEVAL FACTORS            GENERATION FACTORS          ARCHITECTURE FACTORS
+─────────────────            ──────────────────          ────────────────────
+chunk_size (200→1500)        system prompt wording       model choice (mini→4o)
+chunk_overlap (20→200)       temperature (0→0.3)         top_k (1→5→10)
+embedding model              few-shot examples           routing prompt
+splitting strategy           output format instructions  agent graph structure
+```
+
+Each factor can be tuned independently. **Never change two at once** — you lose the ability to attribute improvement.
+
+#### The Evaluators That Score Each Change
+
+Every change affects evaluators differently. Some improve one metric while hurting another:
+
+```
+CHANGE                    routing_accuracy  keyword_correctness  faithfulness  latency  cost
+──────────────────────    ────────────────  ───────────────────  ────────────  ───────  ────
+chunk_size 200→1500           same               ↑ better          ↑ better    same    same
+top_k 3→10                    same               ↑ better          ↑ better    ↑ slower ↑ more
+temperature 0→0.3             same               ↓ worse           ↓ worse     same    same
+model mini→4o                 ↑ better           ↑ better          ↑ better    ↑ slower ↑↑ 10x
+add few-shot examples         same               ↑ better          same        same    ↑ more
+rewrite routing prompt        ↑ better           may change        same        same    same
+```
+
+**Key insight:** There is no single "best" config. Hill climbing is about finding the best *tradeoff* for your constraints (quality vs cost vs latency).
+
+#### The Hill-Climbing Workflow (Multi-Step)
+
+```
+STEP 1: Establish baseline
+  Run all evaluators on the current agent
+  ┌──────────────────────────────────────────────────┐
+  │ routing_accuracy:    1.00  ← good, don't touch   │
+  │ keyword_correctness: 0.55  ← low, fix this first │
+  │ faithfulness:        0.70  ← could improve        │
+  │ empathy (G-Eval):   0.85  ← acceptable           │
+  └──────────────────────────────────────────────────┘
+
+STEP 2: Fix the worst metric first
+  keyword_correctness is lowest → hypothesize: chunk_size too small
+  Change: chunk_size 200 → 1500
+  ┌──────────────────────────────────────────────────┐
+  │ routing_accuracy:    1.00  ← unchanged           │
+  │ keyword_correctness: 0.85  ← ↑ fixed!            │
+  │ faithfulness:        0.78  ← slight improvement   │
+  │ empathy (G-Eval):   0.85  ← unchanged            │
+  └──────────────────────────────────────────────────┘
+
+STEP 3: Fix the next worst metric
+  faithfulness is now lowest → hypothesize: prompt doesn't enforce grounding
+  Change: add "cite only from provided context" to system prompt
+  ┌──────────────────────────────────────────────────┐
+  │ routing_accuracy:    1.00  ← unchanged           │
+  │ keyword_correctness: 0.87  ← stable              │
+  │ faithfulness:        0.91  ← ↑ fixed!            │
+  │ empathy (G-Eval):   0.83  ← slight dip, monitor  │
+  └──────────────────────────────────────────────────┘
+
+STEP 4: Watch for regressions
+  empathy dipped 0.85 → 0.83 — small enough to accept,
+  but if it dropped to 0.60, you'd need to investigate.
+  Every change can have side effects on other metrics.
+
+STEP 5: Repeat until all metrics meet your thresholds
+```
+
+**The principle:** Fix the worst metric first, one change at a time, and always check that your other metrics didn't regress. This is greedy hill climbing — not globally optimal, but practical and debuggable.
 
 ### What This Is NOT
 
