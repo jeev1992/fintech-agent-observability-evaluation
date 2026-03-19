@@ -179,6 +179,10 @@ def ensure_solution_dataset(client=None):
     return _ensure_dataset(SOLUTION_DATASET_NAME, EVAL_EXAMPLES, f"{_EVAL_DESC} (solution)", client)
 
 
+def ensure_demo_hc_dataset(client=None):
+    return _ensure_dataset(DEMO_HC_DATASET_NAME, HILL_CLIMB_EXAMPLES, f"{_HC_DESC} (demo)", client)
+
+
 def ensure_exercise_hc_dataset(client=None):
     return _ensure_dataset(EXERCISE_HC_DATASET_NAME, HILL_CLIMB_EXAMPLES, f"{_HC_DESC} (exercise)", client)
 
@@ -217,7 +221,7 @@ HILL_CLIMB_EXAMPLES = [
     {
         "inputs": {"question": "What is the APR range for auto loans?"},
         "outputs": {
-            "answer": "Auto loan APR ranges from 3.49% to 7.99% depending on the term length and credit score.",
+            "answer": "Auto loan APR ranges from 4.49% to 12.99% for new vehicles and 5.49% to 14.99% for used vehicles, depending on the term length and credit score.",
             "intent": "policy",
         },
     },

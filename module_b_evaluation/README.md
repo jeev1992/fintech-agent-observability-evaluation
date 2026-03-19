@@ -29,17 +29,17 @@ Six evaluation techniques, each targeting a different layer of the system:
 
 Does two things:
 
-1. **Creates a LangSmith dataset** called `fintech-demo-eval` with 15 labeled examples covering all agent paths (policy, account, escalation, out-of-scope).
+1. **Creates a LangSmith dataset** called `fintech-demo-hill-climb` with 8 policy-focused examples. All require precise numbers (fees, APRs, limits), making every example sensitive to retrieval quality. Using a policy-only dataset avoids dilution from account/escalation queries that don't use RAG.
 
-2. **Runs two experiments** against the same dataset with routing and keyword correctness evaluators:
-   - **v1-baseline**: `chunk_size=100` (tiny fragments — numbers split from context)
-   - **v2-improved**: `chunk_size=1500` (full sections intact — all details preserved)
+2. **Runs two experiments** against the same dataset with routing and keyword correctness evaluators, both using `top_k=1` (single chunk retrieval):
+   - **v1-baseline**: `chunk_size=100, top_k=1` (tiny fragment — key numbers split across chunks)
+   - **v2-improved**: `chunk_size=1500, top_k=1` (full section intact — all details preserved)
    
-   One change, one variable. This demonstrates the **observe → tweak → re-evaluate** improvement loop.
+   One change, one variable (`chunk_size`). With `top_k=1`, the single retrieved chunk either has the answer or doesn't — this amplifies the effect of chunk size. This demonstrates the **observe → tweak → re-evaluate** improvement loop.
 
 **What to watch for when you run it:**
 - Does every example get routed to the correct agent?
-- Which examples score lowest on keyword correctness?
+- How dramatically does keyword_correctness jump from v1 to v2?
 - Can you see the comparison in the LangSmith UI?
 
 ### `exercise.py` — Build the full evaluation stack
@@ -71,7 +71,7 @@ Covers: why labeled data matters for multi-agent systems, dataset format, MRR fo
 
 ## How to run
 
-Each file is self-contained — they can be run in any order. Each file creates its own LangSmith dataset (`fintech-demo-eval`, `fintech-exercise-eval`, `fintech-solution-eval`) so experiments never collide.
+Each file is self-contained — they can be run in any order. Each file creates its own LangSmith dataset (`fintech-demo-hill-climb`, `fintech-exercise-eval`, `fintech-solution-eval`) so experiments never collide.
 
 ```bash
 # Run from the project root directory
@@ -87,11 +87,11 @@ python module_b_evaluation/solution.py
 ```
 
 **What to expect from `demo.py`:**
-- Creates a dataset with 15 examples in LangSmith
+- Creates a dataset with 8 policy-focused examples in LangSmith
 - Runs the agent on all examples **3 times each** (`num_repetitions=3`) to smooth out LLM non-determinism — single runs are noisy, averaged scores give reliable comparisons
 - Prints routing accuracy and keyword correctness per example
 - To compare side-by-side:
-  1. Open LangSmith → **Datasets & Experiments** (left sidebar) → click **`fintech-demo-eval`**
+  1. Open LangSmith → **Datasets & Experiments** (left sidebar) → click **`fintech-demo-hill-climb`**
   2. On the **Experiments** tab, check the boxes next to both experiments
   3. Click the **Compare** button that appears at the bottom of the page
   4. This opens a row-by-row comparison of every example's scores across both experiments
@@ -100,15 +100,17 @@ python module_b_evaluation/solution.py
 
 | Experiment | keyword_correctness | routing_accuracy | What changed |
 |---|---|---|---|
-| `demo-v1-baseline` | ~0.66 | 1.00 | `chunk_size=100` — policy docs shredded into tiny pieces |
-| `demo-v2-improved` | ~0.73 | 1.00 | `chunk_size=1500` — full policy sections stay intact |
+| `demo-v1-baseline` | ~0.25–0.40 | 1.00 | `chunk_size=100, top_k=1` — tiny fragments, key numbers missing |
+| `demo-v2-improved` | ~0.70–0.85 | 1.00 | `chunk_size=1500, top_k=1` — full policy sections intact |
 
 Key observations:
-- **Routing accuracy = 1.00** in both — the supervisor correctly classifies every query.
-- **Keyword correctness improves in v2** — same model, same prompt, same `top_k`, only chunk size changes. With `chunk_size=100`, sentences like "$35 per transaction, maximum 3 per day ($105)" get split across chunks, so the LLM only sees partial info. With `chunk_size=1500`, full policy sections stay together.
+- **Routing accuracy = 1.00** in both — the supervisor correctly classifies every query regardless of chunk size.
+- **keyword_correctness jumps dramatically in v2** — same model, same prompt, same `top_k=1`, only chunk size changes. With `chunk_size=100`, a single tiny chunk almost never contains all the numbers the LLM needs. With `chunk_size=1500`, the full policy section fits in one chunk.
 - **This is the evaluation hill-climbing loop**: observe a low score → hypothesize a fix (better chunking) → re-evaluate → confirm improvement.
 
-> **Why this works**: The `keyword_correctness` evaluator uses regex to extract numbers and dollar amounts from the expected answer, then checks if they appear in the actual response. With `chunk_size=100`, retrieved chunks are so small they often miss the exact figures. With `chunk_size=1500`, the full context with all numbers is preserved in each chunk.
+> **Why this works**: With `top_k=1`, each query retrieves exactly ONE chunk. The `keyword_correctness` evaluator extracts numbers and dollar amounts from the expected answer and checks if they appear in the response. At `chunk_size=100`, a single chunk is ~15 words — sentences like "$35 per transaction, maximum 3 per day ($105)" get split, so the LLM only sees fragments. At `chunk_size=1500`, the full section with all numbers stays together in that one chunk.
+>
+> **Why policy-only examples**: A mixed dataset with account lookups and escalation queries dilutes the effect — those paths don't use RAG, so they score identically regardless of chunk size. By using only policy questions (all requiring precise numbers), every single example is affected by the change.
 
 **What to expect from `solution.py`:**
 - Runs all LangSmith evaluators (routing, faithfulness, correctness)

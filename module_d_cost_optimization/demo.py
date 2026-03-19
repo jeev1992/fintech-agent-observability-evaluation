@@ -569,6 +569,118 @@ print(f"  Retention: configure per regulatory requirements (fintech: 5-7 years)"
 
 
 # ===================================================================
+# BATCH API DEMO (Pattern 4: 50% discount for non-real-time workloads)
+# ===================================================================
+print(f"\n{'=' * 85}")
+print("BATCH API DEMO (Pattern 4: 50% Discount for Non-Real-Time Workloads)")
+print(f"{'=' * 85}")
+print("""
+OpenAI's Batch API provides 50% cost reduction for workloads that don't
+need real-time responses. Results are returned within 24 hours.
+
+  Normal:  $0.15/M input,  $0.60/M output  (GPT-4o-mini)
+  Batch:   $0.075/M input, $0.30/M output   -> 50% savings
+
+Use cases for fintech:
+  - Running evaluation datasets (Module B) overnight
+  - Batch-processing customer feedback or survey responses
+  - Generating training/fine-tuning data from policy documents
+  - Periodic compliance report summarization
+""")
+
+# Demonstrate how to create and submit a batch request.
+# This uses the OpenAI client directly (not LangChain) since the Batch API
+# is a platform feature for async job submission.
+
+from openai import OpenAI
+
+batch_client = OpenAI()
+
+# Prepare batch requests: each is a chat completion in JSONL format
+batch_queries = [
+    "What is the overdraft fee?",
+    "What credit score do I need for a personal loan?",
+    "What is the international wire transfer fee?",
+]
+
+batch_requests = []
+for i, query in enumerate(batch_queries):
+    batch_requests.append({
+        "custom_id": f"batch-query-{i}",
+        "method": "POST",
+        "url": "/v1/chat/completions",
+        "body": {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": "You are a helpful banking assistant for SecureBank."},
+                {"role": "user", "content": query},
+            ],
+            "max_tokens": 200,
+        },
+    })
+
+# Write batch input file
+batch_input_path = Path(__file__).parent / "batch_input.jsonl"
+with open(batch_input_path, "w", encoding="utf-8") as f:
+    for req in batch_requests:
+        f.write(json.dumps(req) + "\n")
+
+print(f"  Batch input file written: {batch_input_path}")
+print(f"  Contains {len(batch_requests)} requests")
+
+# Upload and submit the batch
+try:
+    batch_file = batch_client.files.create(
+        file=open(batch_input_path, "rb"),
+        purpose="batch",
+    )
+    print(f"  Uploaded file ID: {batch_file.id}")
+
+    batch_job = batch_client.batches.create(
+        input_file_id=batch_file.id,
+        endpoint="/v1/chat/completions",
+        completion_window="24h",
+        metadata={"description": "fintech-cost-demo-batch", "module": "D"},
+    )
+    print(f"  Batch job ID: {batch_job.id}")
+    print(f"  Status: {batch_job.status}")
+    print(f"\n  The batch will complete within 24 hours.")
+    print(f"  Check status with: client.batches.retrieve('{batch_job.id}')")
+    print(f"  Once complete, download results with:")
+    print(f"    client.files.content(batch_job.output_file_id)")
+
+    # Cost projection
+    normal_cost_per_m_input = 0.15
+    batch_cost_per_m_input = 0.075
+    est_tokens = len(batch_requests) * 300  # rough estimate per request
+    normal_est = est_tokens / 1_000_000 * normal_cost_per_m_input
+    batch_est = est_tokens / 1_000_000 * batch_cost_per_m_input
+    print(f"\n  Estimated cost comparison for this batch:")
+    print(f"    Normal API: ~${normal_est:.6f}")
+    print(f"    Batch API:  ~${batch_est:.6f}  (50% savings)")
+
+    # At scale projection
+    daily_batch_queries = 10_000
+    daily_tokens = daily_batch_queries * 300
+    daily_normal = daily_tokens / 1_000_000 * (normal_cost_per_m_input + 0.60)
+    daily_batch = daily_tokens / 1_000_000 * (batch_cost_per_m_input + 0.30)
+    annual_savings = (daily_normal - daily_batch) * 365
+    print(f"\n  At-scale projection ({daily_batch_queries:,} non-real-time queries/day):")
+    print(f"    Annual normal API cost:  ${daily_normal * 365:>10.2f}")
+    print(f"    Annual batch API cost:   ${daily_batch * 365:>10.2f}")
+    print(f"    Annual savings:          ${annual_savings:>10.2f}")
+
+except Exception as e:
+    print(f"\n  Batch API submission failed: {e}")
+    print(f"  This is expected if your API key doesn't support the Batch API.")
+    print(f"  The batch_input.jsonl file was still created for reference.")
+    print(f"\n  To submit manually:")
+    print(f"    1. Upload: client.files.create(file=open('batch_input.jsonl', 'rb'), purpose='batch')")
+    print(f"    2. Submit: client.batches.create(input_file_id=file.id, endpoint='/v1/chat/completions', completion_window='24h')")
+    print(f"    3. Check:  client.batches.retrieve(batch_id)")
+
+
+# ===================================================================
 # KEY TAKEAWAYS
 # ===================================================================
 print(f"\n{'=' * 85}")

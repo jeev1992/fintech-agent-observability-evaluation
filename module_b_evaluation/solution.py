@@ -21,6 +21,7 @@ from eval_dataset import SOLUTION_HC_DATASET_NAME, ensure_solution_hc_dataset
 load_dotenv()
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+os.environ.setdefault("DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "300")
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "project"))
 from fintech_support_agent import build_support_agent, ask
