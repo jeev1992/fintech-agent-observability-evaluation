@@ -16,6 +16,7 @@
 9. [The Full Evaluation Loop](#9-the-full-evaluation-loop)
 10. [Common Misconceptions](#10-common-misconceptions)
 11. [How Our FinTech Agent Uses Evaluation](#11-how-our-fintech-agent-uses-evaluation)
+12. [Integrating Evaluation into CI/CD Pipelines](#12-integrating-evaluation-into-cicd-pipelines)
 
 ---
 
@@ -197,7 +198,7 @@ from langsmith.evaluation import evaluate
 
 results = evaluate(
     run_agent,                    # function that takes inputs, returns outputs
-    data="fintech-agent-eval",    # dataset name in LangSmith
+    data="fintech-demo-eval",    # each file gets its own dataset
     evaluators=[routing_evaluator, faithfulness_evaluator, correctness_evaluator],
     experiment_prefix="v1-baseline",
     metadata={"model": "gpt-4o-mini", "k": 3},
@@ -323,8 +324,8 @@ agent_v1 = build_support_agent(chunk_size=200, chunk_overlap=20)
 
 results_a = evaluate(
     run_agent_v1,
-    data="fintech-agent-eval",
-    experiment_prefix="v1-baseline",
+    data="fintech-demo-eval",
+    experiment_prefix="demo-v1-baseline",
     num_repetitions=3,  # run each example 3 times, average scores
     metadata={"chunk_size": 200},
 )
@@ -334,14 +335,14 @@ agent_v2 = build_support_agent(chunk_size=1500, chunk_overlap=100)
 
 results_b = evaluate(
     run_agent_v2,
-    data="fintech-agent-eval",
-    experiment_prefix="v2-improved",
+    data="fintech-demo-eval",
+    experiment_prefix="demo-v2-improved",
     num_repetitions=3,
     metadata={"chunk_size": 1500},
 )
 ```
 
-In LangSmith: Datasets → fintech-agent-eval → select both experiments → click **Compare** at the bottom.
+In LangSmith: Datasets → fintech-demo-eval → select both experiments → click **Compare** at the bottom.
 
 ### Hill Climbing Through A/B Testing
 
@@ -821,6 +822,193 @@ A/B comparison           LangSmith exp.       v2 prompt scores higher on
 
 ---
 
+## 12. Integrating Evaluation into CI/CD Pipelines
+
+### Why CI/CD Evaluation Matters
+
+Every prompt change, model update, or retrieval config change can silently break your agent. Without automated evaluation, regressions slip into production unnoticed. CI/CD evaluation catches them before they reach users.
+
+```
+WITHOUT CI/CD EVALUATION:                WITH CI/CD EVALUATION:
+──────────────────────                    ─────────────────────
+1. Engineer changes prompt                1. Engineer changes prompt
+2. Manually tests 2-3 queries            2. Pushes to branch
+3. "Looks good to me"                    3. CI runs 15+ evaluation examples
+4. Pushes to production                  4. Routing: 1.00 ✅ Faithfulness: 0.45 ❌
+5. Users report wrong answers            5. PR blocked — faithfulness regression
+6. Fire drill to debug                   6. Engineer fixes prompt before merge
+```
+
+### LangSmith Evaluation in GitHub Actions
+
+The LangSmith SDK's `evaluate()` returns results you can assert on programmatically:
+
+```python
+# tests/test_agent_quality.py
+import os
+from langsmith.evaluation import evaluate
+from langsmith import Client
+
+def test_agent_quality():
+    """Fail the build if agent quality drops below thresholds."""
+    from project.fintech_support_agent import build_support_agent, ask
+
+    agent = build_support_agent(collection_name="ci_eval")
+    app = agent["app"]
+
+    def run_agent(inputs):
+        result = ask(app, inputs["question"])
+        return {
+            "answer": result["response"],
+            "intent": result["intent"],
+        }
+
+    def routing_evaluator(run, example):
+        predicted = run.outputs.get("intent", "")
+        expected = example.outputs.get("intent", "")
+        return {"key": "routing_accuracy", "score": 1.0 if predicted == expected else 0.0}
+
+    results = evaluate(
+        run_agent,
+        data="fintech-ci-eval",        # persistent dataset in LangSmith
+        evaluators=[routing_evaluator],
+        experiment_prefix=f"ci-{os.environ.get('GITHUB_SHA', 'local')[:8]}",
+    )
+
+    # Assert minimum quality thresholds
+    scores = [r.evaluation_results for r in results]
+    # Check that all routing scores are 1.0
+    for result in results:
+        for eval_result in result.evaluation_results:
+            if eval_result.key == "routing_accuracy":
+                assert eval_result.score >= 0.95, (
+                    f"Routing accuracy dropped to {eval_result.score}"
+                )
+```
+
+### GitHub Actions Workflow
+
+```yaml
+# .github/workflows/eval.yml
+name: Agent Evaluation
+
+on:
+  pull_request:
+    paths:
+      - 'project/**'
+      - 'prompts/**'
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluation suite
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2: "true"
+        run: pytest tests/test_agent_quality.py -v
+
+      - name: Run DeepEval metrics
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: deepeval test run tests/test_deepeval.py
+```
+
+### DeepEval's `deepeval test run` for CI
+
+DeepEval is pytest-native, which makes CI integration straightforward:
+
+```python
+# tests/test_deepeval.py
+import pytest
+from deepeval import assert_test
+from deepeval.test_case import LLMTestCase
+from deepeval.metrics import FaithfulnessMetric, HallucinationMetric
+
+@pytest.fixture
+def agent():
+    from project.fintech_support_agent import build_support_agent, ask
+    agent = build_support_agent(collection_name="ci_deepeval")
+    return agent["app"], ask
+
+EVAL_CASES = [
+    ("What is the overdraft fee?", "policy"),
+    ("What is the balance on ACC-12345?", "account_status"),
+    ("Someone stole money from my account!", "escalation"),
+]
+
+@pytest.mark.parametrize("query,expected_intent", EVAL_CASES)
+def test_faithfulness(agent, query, expected_intent):
+    app, ask_fn = agent
+    result = ask_fn(app, query)
+    test_case = LLMTestCase(
+        input=query,
+        actual_output=result["response"],
+        retrieval_context=[result["context"]] if result["context"] else ["N/A"],
+    )
+    assert_test(test_case, [FaithfulnessMetric(threshold=0.7)])
+```
+
+Run in CI with:
+```bash
+deepeval test run tests/test_deepeval.py
+```
+
+DeepEval prints a table of pass/fail results and returns a non-zero exit code if any metric fails — perfect for gating PRs.
+
+### The CI/CD Evaluation Architecture
+
+```
+Developer pushes code
+    │
+    ▼
+┌──────────────────────────────────────────────────┐
+│  CI PIPELINE                                     │
+│                                                  │
+│  Step 1: LangSmith evaluate()                    │
+│    Dataset: fintech-ci-eval (persistent)         │
+│    Evaluators: routing, faithfulness, correctness│
+│    Prefix: ci-<commit-sha>                       │
+│    Gate: fail if routing < 0.95                  │
+│                                                  │
+│  Step 2: DeepEval test run                       │
+│    Metrics: faithfulness, hallucination           │
+│    Gate: fail if any metric < 0.7                │
+│                                                  │
+│  Step 3: Compare to baseline (optional)          │
+│    LangSmith: compare ci-<sha> vs ci-main        │
+│    Alert if any metric regresses > 5%            │
+│                                                  │
+│  All gates pass → PR can merge                   │
+│  Any gate fails → PR blocked                     │
+│                                                  │
+└──────────────────────────────────────────────────┘
+```
+
+### Key Patterns for CI/CD Evaluation
+
+**1. Persistent dataset**: The evaluation dataset lives in LangSmith permanently. CI runs experiments against it — never recreates or deletes it.
+
+**2. Commit-stamped experiments**: Use the Git SHA as the experiment prefix (`ci-a1b2c3d4`). This creates a history of quality over time, viewable in LangSmith.
+
+**3. Minimum quality gates**: Set thresholds that block merges: routing >= 0.95, faithfulness >= 0.7, no hallucinations on critical queries.
+
+**4. Cost awareness**: Each CI run = evaluation examples × evaluators × LLM calls. A 15-example dataset with 3 evaluators = ~45 LLM calls per CI run. At ~$0.001/call with gpt-4o-mini, that's ~$0.05 per PR — trivial compared to the cost of shipping a broken agent.
+
+**5. Separate CI dataset**: Use a dedicated `fintech-ci-eval` dataset. Don't reuse demo/exercise datasets — CI datasets should be stable and not changed by workshop runs.
+
+---
+
 ## Summary
 
 | Concept | Key Takeaway |
@@ -928,10 +1116,10 @@ Run the same dataset against two agent configs:
 
 ```python
 # Experiment A: original prompt
-evaluate(run_agent_v1, data="fintech-agent-eval", experiment_prefix="v1-baseline")
+evaluate(run_agent_v1, data="fintech-demo-eval", experiment_prefix="demo-v1-baseline")
 
 # Experiment B: improved prompt
-evaluate(run_agent_v2, data="fintech-agent-eval", experiment_prefix="v2-improved")
+evaluate(run_agent_v2, data="fintech-demo-eval", experiment_prefix="demo-v2-improved")
 ```
 
 Compare in LangSmith's side-by-side view. This is the iteration workflow:

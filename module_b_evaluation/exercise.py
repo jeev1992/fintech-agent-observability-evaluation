@@ -24,8 +24,8 @@ from langchain.prompts import ChatPromptTemplate
 from langsmith.evaluation import evaluate
 from langsmith import Client
 
-from eval_dataset import DATASET_NAME, EVAL_EXAMPLES, ensure_dataset_exists
-from eval_dataset import HILL_CLIMB_DATASET_NAME, ensure_hill_climb_dataset_exists
+from eval_dataset import EXERCISE_DATASET_NAME, EVAL_EXAMPLES, ensure_exercise_dataset
+from eval_dataset import EXERCISE_HC_DATASET_NAME, ensure_exercise_hc_dataset
 
 load_dotenv()
 
@@ -42,8 +42,8 @@ retriever = agent["retriever"]
 judge_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 print("Pipeline ready.\n")
 
-# --- Ensure evaluation dataset exists in LangSmith ---
-ensure_dataset_exists()
+# --- Ensure exercise dataset exists in LangSmith ---
+ensure_exercise_dataset()
 
 # ===================================================================
 # SEGMENT 6: LangSmith Evaluators
@@ -114,7 +114,7 @@ def correctness_evaluator(run, example):
 
 # ---------------------------------------------------------------------------
 # TODO 5: Run evaluate() with all evaluators
-# Use data=DATASET_NAME, experiment_prefix="fintech-eval-student"
+# Use data=EXERCISE_DATASET_NAME, experiment_prefix="exercise-eval-student"
 # ---------------------------------------------------------------------------
 # YOUR CODE HERE
 print("Complete TODOs 1-4, then run evaluate() here.\n")
@@ -233,7 +233,8 @@ print("=" * 60)
 escalation_queries = [
     "This is ridiculous! Someone withdrew $15,000 from my savings without my permission!",
     "I've been waiting 3 weeks for my fraud dispute to be resolved! This is unacceptable!",
-    "Your bank charged me $105 in overdraft fees in one day! I want to speak to a manager!",
+    # Factual policy question — agent gives a dry/robotic answer with no empathy
+    "What is the wire transfer fee?",
 ]
 
 # YOUR CODE HERE
@@ -278,7 +279,7 @@ client = Client()
 #     {"inputs": {"question": "..."}, "outputs": {"answer": "...", "intent": "..."}},
 #     ...
 # ]
-# existing = list(client.list_datasets(dataset_name=DATASET_NAME))
+# existing = list(client.list_datasets(dataset_name=EXERCISE_DATASET_NAME))
 # if existing:
 #     client.create_examples(
 #         inputs=[e["inputs"] for e in new_examples],
@@ -299,7 +300,7 @@ print("Complete TODO 9 to add new examples to the dataset.\n")
 # The demo showed hill climbing on keyword_correctness by changing chunk_size.
 # Now you'll hill-climb on a CORRECTNESS evaluator by changing top_k.
 #
-# This uses a separate LangSmith dataset (fintech-hill-climb-eval) with
+# This uses a separate LangSmith dataset (fintech-exercise-hill-climb) with
 # 8 policy questions that require precise factual answers.
 #
 # IMPORTANT: Both agents use chunk_size=200 (tiny fragments) so that
@@ -317,11 +318,11 @@ print("Complete TODO 9 to add new examples to the dataset.\n")
 #   3. Build a baseline agent with chunk_size=200, top_k=1
 #   4. Run evaluate() with [routing_evaluator, keyword_correctness,
 #      correctness_evaluator] on the hill-climb dataset.
-#      Use experiment_prefix="hill-climb-topk1".
+#      Use experiment_prefix="exercise-hc-topk1".
 #   5. Build an improved agent with chunk_size=200, top_k=5
 #   6. Run evaluate() with the same evaluators.
-#      Use experiment_prefix="hill-climb-topk5".
-#   7. Compare in LangSmith: Datasets → fintech-hill-climb-eval → Compare
+#      Use experiment_prefix="exercise-hc-topk5".
+#   7. Compare in LangSmith: Datasets → fintech-exercise-hill-climb → Compare
 #
 # Why this works:
 #   chunk_size=200: documents are split into tiny fragments (incomplete facts)
@@ -333,7 +334,7 @@ print("SEGMENT 12: HILL CLIMBING")
 print("=" * 60)
 
 # --- Create the hill climbing dataset ---
-ensure_hill_climb_dataset_exists()
+ensure_exercise_hc_dataset()
 
 # --- Evaluators from the demo (provided) ---
 def routing_evaluator_hc(run, example):
@@ -375,9 +376,9 @@ def correctness_evaluator_hc(run, example):
 #             "context": result["context"], "retrieved_sources": result["retrieved_sources"]}
 #
 # Step 4: Run baseline evaluate()
-# evaluate(run_agent_v1, data=HILL_CLIMB_DATASET_NAME,
+# evaluate(run_agent_v1, data=EXERCISE_HC_DATASET_NAME,
 #          evaluators=[routing_evaluator_hc, keyword_correctness_hc, correctness_evaluator_hc],
-#          experiment_prefix="hill-climb-topk1",
+#          experiment_prefix="exercise-hc-topk1",
 #          metadata={"chunk_size": 200, "top_k": 1})
 #
 # Step 5: Build improved (chunk_size=200, top_k=5)
@@ -387,9 +388,9 @@ def correctness_evaluator_hc(run, example):
 # def run_agent_v2(inputs): ...
 #
 # Step 6: Run improved evaluate()
-# evaluate(run_agent_v2, data=HILL_CLIMB_DATASET_NAME,
+# evaluate(run_agent_v2, data=EXERCISE_HC_DATASET_NAME,
 #          evaluators=[routing_evaluator_hc, keyword_correctness_hc, correctness_evaluator_hc],
-#          experiment_prefix="hill-climb-topk5",
+#          experiment_prefix="exercise-hc-topk5",
 #          metadata={"chunk_size": 200, "top_k": 5})
 
 print("Complete TODO 10 to run hill climbing experiment.")

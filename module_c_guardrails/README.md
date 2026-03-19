@@ -74,7 +74,7 @@ guardrails hub install hub://guardrails/competitor_check
 ```
 
 ```bash
-# Run from the Week 8/ directory
+# Run from the project root directory
 
 # Part 1: Watch the before/after demo
 python module_c_guardrails/demo.py

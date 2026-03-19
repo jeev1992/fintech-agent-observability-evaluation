@@ -7,7 +7,7 @@ for a multi-agent system using LangSmith.
 What this demo covers:
   - Creating a labeled evaluation dataset (15 examples, all agent paths)
   - Two custom evaluators (routing_accuracy, keyword_correctness)
-  - A/B experiment: chunk_size=200 (v1) vs chunk_size=1500 (v2)
+  - A/B experiment: chunk_size=100 (v1) vs chunk_size=1500 (v2)
   - num_repetitions=3 for statistically meaningful results
   - Hill-climbing loop: observe low score → change one variable → re-evaluate
 
@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from langsmith import Client
 from langsmith.evaluation import evaluate
 
-from eval_dataset import DATASET_NAME, EVAL_EXAMPLES
+from eval_dataset import DEMO_DATASET_NAME, EVAL_EXAMPLES
 
 load_dotenv()
 
@@ -45,13 +45,13 @@ print("Connected to LangSmith.")
 # ---------------------------------------------------------------------------
 # Dataset examples are defined in eval_dataset.py (shared by exercise/solution).
 # Demo always force-recreates to ensure a clean slate.
-existing = list(client.list_datasets(dataset_name=DATASET_NAME))
+existing = list(client.list_datasets(dataset_name=DEMO_DATASET_NAME))
 if existing:
-    print(f"Dataset '{DATASET_NAME}' already exists. Deleting and recreating...")
+    print(f"Dataset '{DEMO_DATASET_NAME}' already exists. Deleting and recreating...")
     client.delete_dataset(dataset_id=existing[0].id)
 
 dataset = client.create_dataset(
-    dataset_name=DATASET_NAME,
+    dataset_name=DEMO_DATASET_NAME,
     description=(
         "Labeled evaluation examples for the FinTech multi-agent support system. "
         "Covers policy questions, account lookups, and escalation scenarios."
@@ -62,16 +62,16 @@ client.create_examples(
     outputs=[e["outputs"] for e in EVAL_EXAMPLES],
     dataset_id=dataset.id,
 )
-print(f"Created dataset '{DATASET_NAME}' with {len(EVAL_EXAMPLES)} examples.\n")
+print(f"Created dataset '{DEMO_DATASET_NAME}' with {len(EVAL_EXAMPLES)} examples.\n")
 
 # ---------------------------------------------------------------------------
 # 4. Build the agent pipeline (v1 — small chunks)
 # ---------------------------------------------------------------------------
-# v1 uses chunk_size=200: policy documents get split into tiny fragments.
-# Key details like "$35 per transaction, maximum 3 per day ($105)" often
-# get split across chunks, so the LLM only sees partial information.
-print("Building FinTech support agent (v1 — chunk_size=200, fragmented)...")
-agent = build_support_agent(collection_name="eval_demo_v1", chunk_size=200, chunk_overlap=20)
+# v1 uses chunk_size=100 with zero overlap: policy documents get shredded
+# into tiny fragments. Key details like "$35 per transaction, maximum 3 per
+# day ($105)" get split across chunks, so the LLM only sees partial info.
+print("Building FinTech support agent (v1 — chunk_size=100, shredded)...")
+agent = build_support_agent(collection_name="eval_demo_v1", chunk_size=100, chunk_overlap=0)
 app = agent["app"]
 print("Pipeline ready.\n")
 
@@ -147,11 +147,11 @@ def keyword_correctness(run, example):
 print("Running Experiment A (baseline, 3 repetitions)...")
 results_a = evaluate(
     run_agent,
-    data=DATASET_NAME,
+    data=DEMO_DATASET_NAME,
     evaluators=[routing_evaluator, keyword_correctness],
-    experiment_prefix="fintech-v1-baseline",
+    experiment_prefix="demo-v1-baseline",
     num_repetitions=3,
-    metadata={"model": "gpt-4o-mini", "version": "baseline", "chunk_size": 200},
+    metadata={"model": "gpt-4o-mini", "version": "baseline", "chunk_size": 100},
 )
 
 print("\n>>> Experiment A complete. View results in LangSmith.\n")
@@ -160,7 +160,7 @@ print("\n>>> Experiment A complete. View results in LangSmith.\n")
 # 8. SEGMENT 7: Run Experiment B — better chunking (one change: chunk_size)
 # ---------------------------------------------------------------------------
 # A proper A/B test changes ONE variable. Here we only increase chunk_size:
-#   v1: chunk_size=200  (tiny fragments, numbers split from context)
+#   v1: chunk_size=100  (tiny fragments, numbers split from context)
 #   v2: chunk_size=1500 (full sections intact, all details preserved)
 # Same model, same prompt, same top_k — only chunking strategy changes.
 
@@ -183,18 +183,18 @@ def run_agent_v2(inputs):
 print("Running Experiment B (chunk_size=1500, 3 repetitions)...")
 results_b = evaluate(
     run_agent_v2,
-    data=DATASET_NAME,
+    data=DEMO_DATASET_NAME,
     evaluators=[routing_evaluator, keyword_correctness],
-    experiment_prefix="fintech-v2-improved",
+    experiment_prefix="demo-v2-improved",
     num_repetitions=3,
     metadata={"model": "gpt-4o-mini", "version": "improved-chunking", "chunk_size": 1500},
 )
 
 print("\n>>> Experiment B complete.")
 print(">>> To compare side-by-side in LangSmith:")
-print(">>>   1. Open LangSmith → Datasets & Experiments → fintech-agent-eval")
+print(">>>   1. Open LangSmith → Datasets & Experiments → fintech-demo-eval")
 print(">>>   2. On the Experiments tab, check the boxes next to both experiments")
 print(">>>   3. Click the 'Compare' button at the bottom of the page")
 print(">>>")
-print(">>> One change: chunk_size=200 → chunk_size=1500")
+print(">>> One change: chunk_size=100 → chunk_size=1500")
 print(">>> Watch keyword_correctness improve from v1 → v2.")

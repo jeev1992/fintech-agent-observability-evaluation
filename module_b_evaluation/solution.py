@@ -15,8 +15,8 @@ from langchain.prompts import ChatPromptTemplate
 from langsmith.evaluation import evaluate
 from langsmith import Client
 
-from eval_dataset import DATASET_NAME, EVAL_EXAMPLES, recreate_dataset
-from eval_dataset import HILL_CLIMB_DATASET_NAME, recreate_hill_climb_dataset
+from eval_dataset import SOLUTION_DATASET_NAME, EVAL_EXAMPLES, ensure_solution_dataset
+from eval_dataset import SOLUTION_HC_DATASET_NAME, ensure_solution_hc_dataset
 
 load_dotenv()
 
@@ -33,8 +33,8 @@ retriever = agent["retriever"]
 judge_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 print("Pipeline ready.\n")
 
-# --- Recreate evaluation dataset (clean slate each run) ---
-recreate_dataset()
+# --- Ensure solution dataset exists (separate from demo dataset) ---
+ensure_solution_dataset()
 
 # ===================================================================
 # SEGMENT 6: LangSmith Evaluators
@@ -143,9 +143,9 @@ print("Running evaluation with all evaluators...")
 
 results = evaluate(
     run_agent,
-    data=DATASET_NAME,
+    data=SOLUTION_DATASET_NAME,
     evaluators=[routing_evaluator, faithfulness_evaluator, correctness_evaluator],
-    experiment_prefix="fintech-eval-solution",
+    experiment_prefix="solution-eval",
     metadata={"model": "gpt-4o-mini"},
 )
 
@@ -227,20 +227,25 @@ try:
     for query in eval_queries:
         result = ask(app, query)
         ctx = [result["context"]] if result["context"] else ["No context retrieved."]
-        test_cases.append(LLMTestCase(
-            input=query,
-            actual_output=result["response"],
-            retrieval_context=ctx,
-            context=ctx,
-        ))
+        test_cases.append({
+            "tc": LLMTestCase(
+                input=query,
+                actual_output=result["response"],
+                retrieval_context=ctx,
+                context=ctx,
+            ),
+            "response": result["response"],
+        })
 
     # Run metrics
     faithfulness = FaithfulnessMetric(threshold=0.7)
     relevancy = AnswerRelevancyMetric(threshold=0.7)
     hallucination = HallucinationMetric(threshold=0.7)
 
-    for i, tc in enumerate(test_cases):
-        print(f"\n  Test case {i+1}: {tc.input[:50]}...")
+    for i, item in enumerate(test_cases):
+        tc = item["tc"]
+        print(f"\n  Test case {i+1}: {tc.input}")
+        print(f"  Response: {item['response'][:150]}")
         for metric in [faithfulness, relevancy, hallucination]:
             metric.measure(tc)
             print(f"    {metric.__class__.__name__}: {metric.score:.2f} "
@@ -284,7 +289,8 @@ try:
     escalation_queries = [
         "This is ridiculous! Someone withdrew $15,000 from my savings without my permission!",
         "I've been waiting 3 weeks for my fraud dispute to be resolved! This is unacceptable!",
-        "Your bank charged me $105 in overdraft fees in one day! I want to speak to a manager!",
+        # Factual policy question — agent gives a dry/robotic answer with no empathy
+        "What is the wire transfer fee?",
     ]
 
     for query in escalation_queries:
@@ -294,7 +300,8 @@ try:
             actual_output=result["response"],
         )
         empathy_metric.measure(tc)
-        print(f"\n  Query: {query[:60]}...")
+        print(f"\n  Query: {query}")
+        print(f"  Response: {result['response'][:150]}")
         print(f"  Empathy Score: {empathy_metric.score:.2f} "
               f"({'PASS' if empathy_metric.is_successful() else 'FAIL'})")
         if hasattr(empathy_metric, 'reason') and empathy_metric.reason:
@@ -346,16 +353,16 @@ new_examples = [
 ]
 
 client = Client()
-existing = list(client.list_datasets(dataset_name=DATASET_NAME))
+existing = list(client.list_datasets(dataset_name=SOLUTION_DATASET_NAME))
 if existing:
     client.create_examples(
         inputs=[e["inputs"] for e in new_examples],
         outputs=[e["outputs"] for e in new_examples],
         dataset_id=existing[0].id,
     )
-    print(f"Added {len(new_examples)} new edge-case examples to '{DATASET_NAME}'.")
+    print(f"Added {len(new_examples)} new edge-case examples to '{SOLUTION_DATASET_NAME}'.")
 else:
-    print(f"Dataset '{DATASET_NAME}' not found — this shouldn't happen.")
+    print(f"Dataset '{SOLUTION_DATASET_NAME}' not found — this shouldn't happen.")
 
 
 # ===================================================================
@@ -366,8 +373,8 @@ print("\n" + "=" * 60)
 print("SEGMENT 12: HILL CLIMBING (top_k=1 vs top_k=5)")
 print("=" * 60)
 
-# --- Recreate the hill climbing dataset (clean slate) ---
-recreate_hill_climb_dataset()
+# --- Ensure the hill climbing dataset exists ---
+ensure_solution_hc_dataset()
 
 # --- Evaluators from demo (provided) ---
 def routing_evaluator_hc(run, example):
@@ -447,9 +454,9 @@ def run_agent_v1(inputs):
 print("Running baseline evaluation (chunk_size=200, top_k=1)...")
 results_v1 = evaluate(
     run_agent_v1,
-    data=HILL_CLIMB_DATASET_NAME,
+    data=SOLUTION_HC_DATASET_NAME,
     evaluators=hc_evaluators,
-    experiment_prefix="hill-climb-topk1",
+    experiment_prefix="solution-hc-topk1",
     metadata={"model": "gpt-4o-mini", "chunk_size": 200, "top_k": 1},
 )
 
@@ -472,14 +479,14 @@ def run_agent_v2(inputs):
 print("Running improved evaluation (chunk_size=200, top_k=5)...")
 results_v2 = evaluate(
     run_agent_v2,
-    data=HILL_CLIMB_DATASET_NAME,
+    data=SOLUTION_HC_DATASET_NAME,
     evaluators=hc_evaluators,
-    experiment_prefix="hill-climb-topk5",
+    experiment_prefix="solution-hc-topk5",
     metadata={"model": "gpt-4o-mini", "chunk_size": 200, "top_k": 5},
 )
 
 print("\n>>> Hill climbing complete.")
-print(">>> Compare in LangSmith: Datasets → fintech-hill-climb-eval → select both → Compare")
+print(">>> Compare in LangSmith: Datasets → fintech-solution-hill-climb → select both → Compare")
 print(">>> Watch the 'correctness' evaluator improve from top_k=1 → top_k=5.")
 print(">>> The demo changed chunk_size; you just changed top_k on a new dataset.")
 

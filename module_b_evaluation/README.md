@@ -29,10 +29,10 @@ Six evaluation techniques, each targeting a different layer of the system:
 
 Does two things:
 
-1. **Creates a LangSmith dataset** called `fintech-agent-eval` with 15 labeled examples covering all agent paths (policy, account, escalation, out-of-scope).
+1. **Creates a LangSmith dataset** called `fintech-demo-eval` with 15 labeled examples covering all agent paths (policy, account, escalation, out-of-scope).
 
 2. **Runs two experiments** against the same dataset with routing and keyword correctness evaluators:
-   - **v1-baseline**: `chunk_size=200` (tiny fragments — numbers split from context)
+   - **v1-baseline**: `chunk_size=100` (tiny fragments — numbers split from context)
    - **v2-improved**: `chunk_size=1500` (full sections intact — all details preserved)
    
    One change, one variable. This demonstrates the **observe → tweak → re-evaluate** improvement loop.
@@ -69,7 +69,7 @@ Covers: why labeled data matters for multi-agent systems, dataset format, MRR fo
 
 ## How to run
 
-Each file is self-contained — they can be run in any order. The `fintech-agent-eval` dataset is created automatically if it doesn't exist.
+Each file is self-contained — they can be run in any order. Each file creates its own LangSmith dataset (`fintech-demo-eval`, `fintech-exercise-eval`, `fintech-solution-eval`) so experiments never collide.
 
 ```bash
 # Run from the project root directory
@@ -89,7 +89,7 @@ python module_b_evaluation/solution.py
 - Runs the agent on all examples **3 times each** (`num_repetitions=3`) to smooth out LLM non-determinism — single runs are noisy, averaged scores give reliable comparisons
 - Prints routing accuracy and keyword correctness per example
 - To compare side-by-side:
-  1. Open LangSmith → **Datasets & Experiments** (left sidebar) → click **`fintech-agent-eval`**
+  1. Open LangSmith → **Datasets & Experiments** (left sidebar) → click **`fintech-demo-eval`**
   2. On the **Experiments** tab, check the boxes next to both experiments
   3. Click the **Compare** button that appears at the bottom of the page
   4. This opens a row-by-row comparison of every example's scores across both experiments
@@ -98,15 +98,15 @@ python module_b_evaluation/solution.py
 
 | Experiment | keyword_correctness | routing_accuracy | What changed |
 |---|---|---|---|
-| `fintech-v1-baseline` | 0.55 | 1.00 | `chunk_size=200` — policy docs fragmented into tiny pieces |
-| `fintech-v2-improved` | 0.70 | 1.00 | `chunk_size=1500` — full policy sections stay intact |
+| `demo-v1-baseline` | ~0.66 | 1.00 | `chunk_size=100` — policy docs shredded into tiny pieces |
+| `demo-v2-improved` | ~0.73 | 1.00 | `chunk_size=1500` — full policy sections stay intact |
 
 Key observations:
 - **Routing accuracy = 1.00** in both — the supervisor correctly classifies every query.
-- **Keyword correctness improves in v2** — same model, same prompt, same `top_k`, only chunk size changes. With `chunk_size=200`, sentences like "$35 per transaction, maximum 3 per day ($105)" get split across chunks, so the LLM only sees partial info. With `chunk_size=1500`, full policy sections stay together.
+- **Keyword correctness improves in v2** — same model, same prompt, same `top_k`, only chunk size changes. With `chunk_size=100`, sentences like "$35 per transaction, maximum 3 per day ($105)" get split across chunks, so the LLM only sees partial info. With `chunk_size=1500`, full policy sections stay together.
 - **This is the evaluation hill-climbing loop**: observe a low score → hypothesize a fix (better chunking) → re-evaluate → confirm improvement.
 
-> **Why this works**: The `keyword_correctness` evaluator uses regex to extract numbers and dollar amounts from the expected answer, then checks if they appear in the actual response. With `chunk_size=200`, retrieved chunks are so small they often miss the exact figures. With `chunk_size=1500`, the full context with all numbers is preserved in each chunk.
+> **Why this works**: The `keyword_correctness` evaluator uses regex to extract numbers and dollar amounts from the expected answer, then checks if they appear in the actual response. With `chunk_size=100`, retrieved chunks are so small they often miss the exact figures. With `chunk_size=1500`, the full context with all numbers is preserved in each chunk.
 
 **What to expect from `solution.py`:**
 - Runs all LangSmith evaluators (routing, faithfulness, correctness)

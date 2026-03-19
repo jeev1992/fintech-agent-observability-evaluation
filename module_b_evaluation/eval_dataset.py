@@ -2,15 +2,24 @@
 Shared evaluation dataset for Module B.
 Used by demo.py, exercise.py, and solution.py.
 
-Provides:
-  - DATASET_NAME: the LangSmith dataset name
-  - EVAL_EXAMPLES: the 15 labeled evaluation examples
-  - ensure_dataset_exists(client): create the dataset in LangSmith if it doesn't exist
+Each file gets its own LangSmith dataset so experiments never collide:
+  - Demo:     fintech-demo-eval     + fintech-demo-hill-climb
+  - Exercise: fintech-exercise-eval + fintech-exercise-hill-climb
+  - Solution: fintech-solution-eval + fintech-solution-hill-climb
 """
 
 from langsmith import Client
 
-DATASET_NAME = "fintech-agent-eval"
+# ---------------------------------------------------------------------------
+# Dataset names — each file has its own so experiments stay isolated
+# ---------------------------------------------------------------------------
+DEMO_DATASET_NAME = "fintech-demo-eval"
+EXERCISE_DATASET_NAME = "fintech-exercise-eval"
+SOLUTION_DATASET_NAME = "fintech-solution-eval"
+
+DEMO_HC_DATASET_NAME = "fintech-demo-hill-climb"
+EXERCISE_HC_DATASET_NAME = "fintech-exercise-hill-climb"
+SOLUTION_HC_DATASET_NAME = "fintech-solution-hill-climb"
 
 EVAL_EXAMPLES = [
     # --- Policy: Account Fees ---
@@ -130,66 +139,57 @@ EVAL_EXAMPLES = [
 ]
 
 
-def ensure_dataset_exists(client=None):
-    """Create the evaluation dataset in LangSmith if it doesn't already exist.
-
-    Returns the dataset object.
-    """
+def _ensure_dataset(dataset_name, examples, description, client=None):
+    """Create a LangSmith dataset if it doesn't already exist."""
     if client is None:
         client = Client()
-
-    existing = list(client.list_datasets(dataset_name=DATASET_NAME))
+    existing = list(client.list_datasets(dataset_name=dataset_name))
     if existing:
-        print(f"Dataset '{DATASET_NAME}' already exists in LangSmith.")
+        print(f"Dataset '{dataset_name}' already exists in LangSmith.")
         return existing[0]
-
-    dataset = client.create_dataset(
-        dataset_name=DATASET_NAME,
-        description=(
-            "Labeled evaluation examples for the FinTech multi-agent support system. "
-            "Covers policy questions, account lookups, and escalation scenarios."
-        ),
-    )
+    dataset = client.create_dataset(dataset_name=dataset_name, description=description)
     client.create_examples(
-        inputs=[e["inputs"] for e in EVAL_EXAMPLES],
-        outputs=[e["outputs"] for e in EVAL_EXAMPLES],
+        inputs=[e["inputs"] for e in examples],
+        outputs=[e["outputs"] for e in examples],
         dataset_id=dataset.id,
     )
-    print(f"Created dataset '{DATASET_NAME}' with {len(EVAL_EXAMPLES)} examples.")
+    print(f"Created dataset '{dataset_name}' with {len(examples)} examples.")
     return dataset
 
 
-def recreate_dataset(client=None):
-    """Delete and recreate the evaluation dataset. Returns the dataset object."""
-    if client is None:
-        client = Client()
+_EVAL_DESC = (
+    "Labeled evaluation examples for the FinTech multi-agent support system. "
+    "Covers policy questions, account lookups, and escalation scenarios."
+)
+_HC_DESC = (
+    "Policy-focused evaluation examples for hill climbing experiments. "
+    "Questions require precise factual answers sensitive to retrieval quality."
+)
 
-    existing = list(client.list_datasets(dataset_name=DATASET_NAME))
-    if existing:
-        client.delete_dataset(dataset_id=existing[0].id)
-        print(f"Deleted existing dataset '{DATASET_NAME}'.")
 
-    dataset = client.create_dataset(
-        dataset_name=DATASET_NAME,
-        description=(
-            "Labeled evaluation examples for the FinTech multi-agent support system. "
-            "Covers policy questions, account lookups, and escalation scenarios."
-        ),
-    )
-    client.create_examples(
-        inputs=[e["inputs"] for e in EVAL_EXAMPLES],
-        outputs=[e["outputs"] for e in EVAL_EXAMPLES],
-        dataset_id=dataset.id,
-    )
-    print(f"Created dataset '{DATASET_NAME}' with {len(EVAL_EXAMPLES)} examples.")
-    return dataset
+def ensure_demo_dataset(client=None):
+    return _ensure_dataset(DEMO_DATASET_NAME, EVAL_EXAMPLES, f"{_EVAL_DESC} (demo)", client)
+
+
+def ensure_exercise_dataset(client=None):
+    return _ensure_dataset(EXERCISE_DATASET_NAME, EVAL_EXAMPLES, f"{_EVAL_DESC} (exercise)", client)
+
+
+def ensure_solution_dataset(client=None):
+    return _ensure_dataset(SOLUTION_DATASET_NAME, EVAL_EXAMPLES, f"{_EVAL_DESC} (solution)", client)
+
+
+def ensure_exercise_hc_dataset(client=None):
+    return _ensure_dataset(EXERCISE_HC_DATASET_NAME, HILL_CLIMB_EXAMPLES, f"{_HC_DESC} (exercise)", client)
+
+
+def ensure_solution_hc_dataset(client=None):
+    return _ensure_dataset(SOLUTION_HC_DATASET_NAME, HILL_CLIMB_EXAMPLES, f"{_HC_DESC} (solution)", client)
 
 
 # ---------------------------------------------------------------------------
-# Hill Climbing dataset — separate from the main eval dataset so exercise/
-# solution experiments don't pollute the demo's dataset.
+# Hill Climbing examples — used by exercise and solution hill climb datasets
 # ---------------------------------------------------------------------------
-HILL_CLIMB_DATASET_NAME = "fintech-hill-climb-eval"
 
 HILL_CLIMB_EXAMPLES = [
     # Policy questions where factual correctness is sensitive to retrieval quality
@@ -250,55 +250,3 @@ HILL_CLIMB_EXAMPLES = [
         },
     },
 ]
-
-
-def ensure_hill_climb_dataset_exists(client=None):
-    """Create the hill climbing dataset in LangSmith if it doesn't already exist."""
-    if client is None:
-        client = Client()
-
-    existing = list(client.list_datasets(dataset_name=HILL_CLIMB_DATASET_NAME))
-    if existing:
-        print(f"Dataset '{HILL_CLIMB_DATASET_NAME}' already exists in LangSmith.")
-        return existing[0]
-
-    dataset = client.create_dataset(
-        dataset_name=HILL_CLIMB_DATASET_NAME,
-        description=(
-            "Policy-focused evaluation examples for hill climbing experiments. "
-            "Questions require precise factual answers sensitive to retrieval quality."
-        ),
-    )
-    client.create_examples(
-        inputs=[e["inputs"] for e in HILL_CLIMB_EXAMPLES],
-        outputs=[e["outputs"] for e in HILL_CLIMB_EXAMPLES],
-        dataset_id=dataset.id,
-    )
-    print(f"Created dataset '{HILL_CLIMB_DATASET_NAME}' with {len(HILL_CLIMB_EXAMPLES)} examples.")
-    return dataset
-
-
-def recreate_hill_climb_dataset(client=None):
-    """Delete and recreate the hill climbing dataset. Returns the dataset object."""
-    if client is None:
-        client = Client()
-
-    existing = list(client.list_datasets(dataset_name=HILL_CLIMB_DATASET_NAME))
-    if existing:
-        client.delete_dataset(dataset_id=existing[0].id)
-        print(f"Deleted existing dataset '{HILL_CLIMB_DATASET_NAME}'.")
-
-    dataset = client.create_dataset(
-        dataset_name=HILL_CLIMB_DATASET_NAME,
-        description=(
-            "Policy-focused evaluation examples for hill climbing experiments. "
-            "Questions require precise factual answers sensitive to retrieval quality."
-        ),
-    )
-    client.create_examples(
-        inputs=[e["inputs"] for e in HILL_CLIMB_EXAMPLES],
-        outputs=[e["outputs"] for e in HILL_CLIMB_EXAMPLES],
-        dataset_id=dataset.id,
-    )
-    print(f"Created dataset '{HILL_CLIMB_DATASET_NAME}' with {len(HILL_CLIMB_EXAMPLES)} examples.")
-    return dataset
