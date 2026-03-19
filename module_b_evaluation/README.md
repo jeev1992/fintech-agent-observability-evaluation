@@ -44,7 +44,7 @@ Does two things:
 
 ### `exercise.py` — Build the full evaluation stack
 
-Eight TODOs covering all six techniques:
+Ten TODOs covering all six techniques:
 
 | TODO | What you do |
 |------|-------------|
@@ -56,10 +56,12 @@ Eight TODOs covering all six techniques:
 | 6 | Compute MRR across 10 retrieval queries |
 | 7 | Run DeepEval metrics (faithfulness, hallucination, answer relevancy) |
 | 8 | Build a G-Eval empathy metric for escalation responses |
+| 9 | Add new evaluation examples to improve dataset coverage |
+| 10 | Hill climbing — improve correctness by changing ONE variable |
 
 ### `solution.py` — Reference implementation
 
-Complete working code for all 8 TODOs: evaluators, MRR computation, DeepEval assert_test, and G-Eval empathy scoring.
+Complete working code for all 10 TODOs: evaluators, MRR computation, DeepEval assert_test, G-Eval empathy scoring, expanded dataset, and hill climbing optimization.
 
 ### `notes.md` — Concepts
 

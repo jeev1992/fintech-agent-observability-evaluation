@@ -105,6 +105,8 @@ def build_support_agent(
     top_k=3,
     model="gpt-4o-mini",
     policy_system_prompt=None,
+    enable_reranking=False,
+    rerank_fetch_k=None,
 ):
     """
     Build and return the multi-agent FinTech support system.
@@ -185,10 +187,19 @@ def build_support_agent(
     # --- Policy Agent ---
     def policy_agent(state):
         question = state["query"]
-        retrieved_docs = retriever.invoke(question)
+        if enable_reranking:
+            fetch_k = rerank_fetch_k or top_k * 2
+            scored_docs = vectorstore.similarity_search_with_relevance_scores(
+                question, k=fetch_k
+            )
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+            retrieved_docs = [doc for doc, _ in scored_docs[:top_k]]
+        else:
+            retrieved_docs = retriever.invoke(question)
         context = format_docs(retrieved_docs)
         sources = [doc.metadata.get("source", "") for doc in retrieved_docs]
-        answer = rag_chain.invoke(question)
+        chain = policy_prompt | llm | StrOutputParser()
+        answer = chain.invoke({"context": context, "question": question})
         return {
             "response": answer,
             "context": context,

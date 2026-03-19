@@ -46,7 +46,7 @@ ACC-11111: Carol Davis, High-Yield Savings, $85,320.00, FROZEN (fraud review)
 Modules are lettered in teaching order. Each module introduces new production hardening techniques applied to the same FinTech agent.
 
 ```
-Week 8/
+fintech-agent-observability-evaluation/
 │
 ├── project/                               # THE AGENT — pre-built, shared by all modules
 │   ├── fintech_support_agent.py           # Multi-agent system (supervisor + 3 agents)
@@ -98,7 +98,7 @@ Each module has a `notes.md` file with detailed reference documentation for that
 |---|---|---|
 | `module_a_observability/notes.md` | Observability deep dive | Traces, runs, run trees, debugging walkthrough, monitoring, sampling |
 | `module_b_evaluation/notes.md` | Evaluation deep dive | Datasets, evaluators, MRR formula, DeepEval vs LangSmith, G-Eval criteria |
-| `module_c_guardrails/notes.md` | Guardrails deep dive | Regex→Schema→LLM spectrum, Guardrails AI, Presidio, GDPR/HIPAA patterns |
+| `module_c_guardrails/notes.md` | Guardrails deep dive | Four strategies (Regex→Moderation→ML/NER→LLM), Guardrails AI, Presidio, GDPR/HIPAA patterns |
 | `module_d_cost_optimization/notes.md` | Cost deep dive | Token economics, cost structure, before/after methodology, 4 optimization patterns |
 
 ---
@@ -120,7 +120,7 @@ python --version  # should be 3.10+
 
 ```bash
 git clone <your-repo-url>
-cd "Week 8"
+cd fintech-agent-observability-evaluation
 ```
 
 ### 3. Create a virtual environment
@@ -315,7 +315,7 @@ ESCALATION: "I'm furious! Nobody is helping!"
 | 1:15–1:20 | Break | | |
 | 1:20–2:50 | Module B | Evaluation: datasets, MRR, DeepEval, G-Eval | `module_b_evaluation/` |
 | 2:50–3:00 | Break | | |
-| 3:00–3:50 | Module C | Guardrails AI + Presidio PII redaction | `module_c_guardrails/` |
+| 3:00–3:50 | Module C | Input & output guardrails (4 strategies) + Presidio PII | `module_c_guardrails/` |
 | 3:50–4:00 | Module D | Cost optimization (before/after) + wrap-up | `module_d_cost_optimization/` |
 
 ---
@@ -330,8 +330,8 @@ ESCALATION: "I'm furious! Nobody is helping!"
 | `project/fintech_support_agent.py` | `SupportState` | TypedDict defining state flowing through the graph |
 | `project/documents/*.md` | — | 4 policy documents embedded into Chroma for RAG |
 | `module_b_evaluation/demo.py` | `evaluate()` | Creates LangSmith dataset and runs A/B experiments |
-| `module_c_guardrails/solution.py` | `guarded_pipeline()` | Full pipeline: PII redact → agent → guard → PII redact |
-| `module_d_cost_optimization/demo.py` | `measure_cost()` | Runs queries and captures token usage for before/after |
+| `module_c_guardrails/solution.py` | `guarded_pipeline()` | Full pipeline: moderation → regex → injection → agent → Guardrails AI → Presidio |
+| `module_d_cost_optimization/demo.py` | `run_measurement()` | Runs queries and captures token usage for before/after |
 
 ---
 

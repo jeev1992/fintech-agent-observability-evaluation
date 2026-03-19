@@ -29,42 +29,55 @@ Two surprising facts:
 
 ## File breakdown
 
-### `demo.py` — Token counting and before/after comparison
+### `demo.py` — Production-grade token counting and before/after comparison
 
-Does three things:
+Does five things:
 
-1. **Token counting** — Uses `tiktoken` to count tokens in the supervisor's system prompt. Shows this hidden cost multiplier.
+1. **Token counting** — Uses `tiktoken` to count tokens in the supervisor's system prompt. Shows the hidden cost multiplier.
 
-2. **BEFORE measurement** — Runs 8 queries through the baseline config (`chunk_size=1000, k=5`), captures tokens and cost per query.
+2. **BEFORE measurement** — Runs 8 queries through the baseline config (`chunk_size=1000, k=5`), captures tokens, cost, latency per query with trace IDs and audit logging.
 
-3. **AFTER measurement** — Runs the same 8 queries through the optimized config (`chunk_size=400, k=3`), then prints a side-by-side comparison table with savings percentages and projected annual savings at 1,000 queries/day.
+3. **AFTER measurement** — Runs the same 8 queries through the optimized config (`chunk_size=400, k=3, reranking enabled`), then measures with the same instrumentation.
 
-**What to watch for when you run it:**
-- How many tokens does the supervisor system prompt use?
-- Which query type (policy/account/escalation) costs the most?
-- What's the percentage reduction in prompt tokens?
+4. **AFTER + CACHE measurement** — Pre-populates a semantic cache from optimized results, reruns queries to demonstrate 100% cache hit rate and $0 LLM cost.
 
-### `exercise.py` — Build your own cost comparison
+5. **Production analysis** — Prints a 3-way comparison table (baseline / optimized / cached), per-intent cost breakdown, cost alerts, quality regression check, projected annual savings, and audit log summary.
 
-Seven TODOs:
+**Production features demonstrated:**
+- Structured JSON logging with trace IDs
+- Per-intent cost and latency breakdown
+- Semantic caching with hit-rate measurement
+- Cost threshold alerting and budget tracking
+- Audit logging (JSONL) for fintech compliance
+- Quality regression testing after optimization
+- Reranking for improved RAG retrieval
+
+### `exercise.py` — Build your own production cost pipeline
+
+Ten TODOs:
 
 | TODO | What you do |
 |------|-------------|
-| 1 | Import `tiktoken` and `get_openai_callback` |
-| 2 | Count tokens in the supervisor system prompt |
+| 1 | Import `tiktoken`, `get_openai_callback`, and `OpenAIEmbeddings` |
+| 2 | Count tokens in the supervisor system prompt with tiktoken |
 | 3 | Build the BASELINE pipeline (`chunk=1000, k=5`) |
-| 4 | Measure token usage for all 8 queries (BEFORE) |
-| 5 | Build the OPTIMIZED pipeline (`chunk=400, k=3`) |
-| 6 | Measure token usage for all 8 queries (AFTER) |
-| 7 | Calculate and print the before/after comparison table |
+| 4 | Implement measurement loop with trace IDs, latency, cost tracking, audit logging |
+| 5 | Build the OPTIMIZED pipeline (`chunk=400, k=3, reranking=True`) |
+| 6 | Measure the OPTIMIZED pipeline |
+| 7 | Demonstrate semantic caching (pre-populate + rerun) |
+| 8 | Print 3-way comparison table (baseline / optimized / cached) |
+| 9 | Print per-intent cost breakdown |
+| 10 | Quality regression check + projected savings + audit summary |
+
+Infrastructure classes are provided: `JSONFormatter`, `SemanticCache`, `CostTracker`.
 
 ### `solution.py` — Reference implementation
 
-Complete working code for all 7 TODOs. Prints a clean comparison table with percentage savings and projected annual savings.
+Complete working code for all 10 TODOs. Prints the full production-grade output including comparison tables, per-intent breakdown, cost alerts, quality regression, projected savings, and audit log.
 
 ### `notes.md` — Concepts
 
-Covers: token economics (input vs output pricing), multi-agent cost structure, `tiktoken` and `get_openai_callback()`, optimization patterns (model routing, caching, smaller chunks, lower k), and the cost-quality trade-off.
+Covers: token economics (input vs output pricing), multi-agent cost structure, `tiktoken` and `get_openai_callback()`, optimization patterns (model routing, caching, smaller chunks, lower k, reranking), the cost-quality trade-off, structured logging with trace IDs, audit logging for fintech compliance, semantic caching, cost caps and budget alerting, quality regression testing, and per-intent cost breakdown.
 
 ---
 
@@ -73,7 +86,7 @@ Covers: token economics (input vs output pricing), multi-agent cost structure, `
 No extra dependencies — `tiktoken` is already in `requirements.txt`.
 
 ```bash
-# Run from the Week 8/ directory
+# Run from the project root directory
 
 # Part 1: Watch the before/after demo
 python module_d_cost_optimization/demo.py
@@ -87,13 +100,19 @@ python module_d_cost_optimization/solution.py
 
 **What to expect from `demo.py`:**
 - Counts tokens in the supervisor prompt (~80–100 tokens)
-- Runs 8 queries through BASELINE config — prints per-query token/cost breakdown
-- Runs 8 queries through OPTIMIZED config — prints per-query token/cost breakdown
-- Prints a side-by-side comparison table with savings percentages
+- Runs 8 queries through BASELINE config — prints per-query token/cost/latency with trace IDs
+- Runs 8 queries through OPTIMIZED config (reranking enabled) — same instrumentation
+- Runs CACHED pass — shows 100% cache hit rate, $0 LLM cost
+- Prints 3-way comparison table (baseline / optimized / cached) with savings
+- Prints per-intent cost breakdown (policy vs account vs escalation)
+- Shows any cost alerts triggered
+- Runs quality regression check on optimized responses
 - Shows projected annual savings at 1,000 queries/day
+- Writes audit log to `audit_log.jsonl`
 
 **What to expect from `solution.py`:**
-- Same output structure as demo, built from scratch via the TODOs
+- Same output structure as demo, built from scratch via the 10 TODOs
+- Writes audit log to `audit_log_solution.jsonl`
 
 ---
 

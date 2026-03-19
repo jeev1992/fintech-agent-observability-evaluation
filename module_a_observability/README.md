@@ -72,7 +72,7 @@ Covers: observability vs logging vs monitoring, trace anatomy (trace â†’ runs â†
 You need `OPENAI_API_KEY` and `LANGCHAIN_API_KEY` set in your `.env` file. Get a free LangSmith account at [smith.langchain.com](https://smith.langchain.com).
 
 ```bash
-# Run from the Week 8/ directory
+# Run from the project root directory
 
 # Part 1: Watch the demo (instructor runs tricky queries, reveals traces)
 python module_a_observability/demo.py
