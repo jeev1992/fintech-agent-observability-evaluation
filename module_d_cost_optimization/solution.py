@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 # --- SOLUTION 1: Imports ---
 import tiktoken
-from langchain.callbacks import get_openai_callback
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_openai import OpenAIEmbeddings
 
 load_dotenv()
@@ -304,6 +304,12 @@ print(f"  Supervisor system prompt: {token_count} tokens")
 print(f"  Hidden cost: {token_count} tokens x every call "
       f"= {token_count * 1000:,} tokens/day at 1K queries")
 
+print(f"\n  NOTE: LangSmith also captures token counts per LLM call in every trace.")
+print(f"  Open your LangSmith dashboard to see prompt/completion tokens")
+print(f"  broken down by individual runs (supervisor vs agent).")
+print(f"  Local measurement (this module) adds alerting, caching, and audit logs")
+print(f"  on top of what LangSmith provides out of the box.")
+
 
 # ===================================================================
 # SEGMENT 15: BEFORE / AFTER COMPARISON
@@ -473,3 +479,4 @@ print(f"  Use for: compliance reporting, cost attribution, anomaly detection")
 print(f"  Retention: configure per regulatory requirements (fintech: 5-7 years)")
 
 print(f"\nIMPORTANT: Run Module B evaluation on optimized config to verify quality!")
+print(f"TIP: Open LangSmith to see per-run token breakdowns for every query traced above.")

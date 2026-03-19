@@ -41,7 +41,7 @@ from fintech_support_agent import build_support_agent, ask
 # TODO 1: Import tiktoken, get_openai_callback, and OpenAIEmbeddings
 # ---------------------------------------------------------------------------
 # import tiktoken
-# from langchain.callbacks import get_openai_callback
+# from langchain_community.callbacks.manager import get_openai_callback
 # from langchain_openai import OpenAIEmbeddings
 
 
@@ -244,6 +244,11 @@ supervisor_prompt = (
 # Use tiktoken.encoding_for_model("gpt-4o-mini") to get the encoder.
 # Count tokens in supervisor_prompt and print the result.
 # Print the hidden cost: tokens * 1000 queries/day.
+#
+# NOTE: LangSmith also captures per-run token counts in every trace.
+# Open your LangSmith dashboard to compare — you'll see tokens broken
+# down by individual LLM calls (supervisor vs agent). This module adds
+# alerting, caching, and audit logs on top of that foundation.
 # ---------------------------------------------------------------------------
 # YOUR CODE HERE
 print("Complete TODO 2 to count tokens.\n")

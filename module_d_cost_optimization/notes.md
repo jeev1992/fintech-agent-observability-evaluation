@@ -223,7 +223,7 @@ print(f"Estimated cost: ${cost:.6f}")
 LangChain's `get_openai_callback()` is a context manager that captures token usage and cost for all OpenAI calls within its scope:
 
 ```python
-from langchain.callbacks import get_openai_callback
+from langchain_community.callbacks.manager import get_openai_callback
 
 with get_openai_callback() as cb:
     result = ask(app, "What is the overdraft fee?")
@@ -245,6 +245,16 @@ cb.successful_requests → Number of successful API calls
 ```
 
 **Important:** This captures tokens across ALL LLM calls within the `with` block. For our multi-agent system, that's the supervisor call + the specialist agent call combined.
+
+### LangSmith Also Captures Token Usage
+
+Because `LANGCHAIN_TRACING_V2=true` is set, every LLM call is also traced to LangSmith with per-run token counts. Open the LangSmith dashboard and click any trace to see:
+
+- **Per-run breakdown**: supervisor call tokens vs agent call tokens (not just the combined total)
+- **Latency waterfall**: which call took the longest
+- **Full I/O**: exact prompts and completions sent/received
+
+So why do we also measure locally with `get_openai_callback()`? Because LangSmith gives you visibility; this module adds **action**: cost threshold alerts, budget tracking, per-intent breakdowns, semantic caching, audit logging, and automated before/after comparison tables. They complement each other.
 
 ### Per-Query Cost Logger
 

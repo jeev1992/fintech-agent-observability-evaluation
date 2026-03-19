@@ -31,7 +31,7 @@ from collections import defaultdict
 from dotenv import load_dotenv
 
 import tiktoken
-from langchain.callbacks import get_openai_callback
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_openai import OpenAIEmbeddings
 
 load_dotenv()
@@ -271,6 +271,12 @@ for label, text in samples.items():
 sup_tokens = len(encoder.encode(samples["Supervisor system prompt"]))
 print(f"\n  Hidden cost: {sup_tokens} tokens x every call "
       f"= {sup_tokens * 1000:,} tokens/day at 1K queries")
+
+print(f"\n  NOTE: LangSmith also captures token counts per LLM call in every trace.")
+print(f"  Open your LangSmith dashboard to see prompt/completion tokens")
+print(f"  broken down by individual runs (supervisor vs agent).")
+print(f"  Local measurement (this module) adds alerting, caching, and audit logs")
+print(f"  on top of what LangSmith provides out of the box.")
 
 
 # ===================================================================
@@ -600,4 +606,10 @@ What else to consider in production:
   - Model routing - cheap model for simple queries, powerful for complex
   - Batch API - 50% discount for non-real-time workloads
   - Persistent vector stores (Pinecone, Weaviate) instead of in-memory Chroma
+
+LangSmith connection (Module A):
+  Every query in this demo is also traced in LangSmith with per-run token counts.
+  Open your LangSmith dashboard to see the same data broken down by individual
+  LLM calls (supervisor vs agent). This module adds structured alerting, caching,
+  audit logging, and comparison analysis on top of that foundation.
 """)

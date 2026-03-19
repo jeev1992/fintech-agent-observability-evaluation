@@ -100,6 +100,7 @@ python module_d_cost_optimization/solution.py
 
 **What to expect from `demo.py`:**
 - Counts tokens in the supervisor prompt (~80–100 tokens)
+- Points out that LangSmith also captures per-run token counts in every trace (open your dashboard to compare)
 - Runs 8 queries through BASELINE config — prints per-query token/cost/latency with trace IDs
 - Runs 8 queries through OPTIMIZED config (reranking enabled) — same instrumentation
 - Runs CACHED pass — shows 100% cache hit rate, $0 LLM cost
