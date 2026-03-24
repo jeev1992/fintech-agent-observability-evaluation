@@ -10,3 +10,4 @@ chroma_db/
 audit_log*.jsonl
 .claude/
 .deepeval/
+batch_input.jsonl
