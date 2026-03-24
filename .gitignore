@@ -11,3 +11,4 @@ audit_log*.jsonl
 .claude/
 .deepeval/
 batch_input.jsonl
+.pdf_images/
