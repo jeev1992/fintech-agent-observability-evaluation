@@ -153,7 +153,7 @@ def keyword_correctness(run, example):
         return {"key": "keyword_correctness", "score": 0.5}
 
     matches = sum(1 for term in key_terms if term in actual)
-    score = matches / len(key_terms)
+    score = round(matches / len(key_terms), 4)
     return {"key": "keyword_correctness", "score": score}
 
 

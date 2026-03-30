@@ -350,7 +350,7 @@ def keyword_correctness_hc(run, example):
     if not key_terms:
         return {"key": "keyword_correctness", "score": 0.5}
     matches = sum(1 for term in key_terms if term in actual)
-    return {"key": "keyword_correctness", "score": matches / len(key_terms)}
+    return {"key": "keyword_correctness", "score": round(matches / len(key_terms), 4)}
 
 # --- YOUR CODE: Implement correctness_evaluator ---
 def correctness_evaluator_hc(run, example):

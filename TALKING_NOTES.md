@@ -553,24 +553,45 @@ The design principle: choose examples where your metric clearly measures the var
 ---
 
 ### Slide 35 — MRR: Mean Reciprocal Rank
-**Time: ~4 min**
+**Time: ~6 min**
 
-MRR is a different kind of metric. While routing accuracy and keyword correctness measure the final answer, MRR measures retrieval quality directly — independent of the LLM.
+Now, remember back in Week 3 — RAG Part 2 — when we talked about evaluation without any framework like LangSmith? We established a really important principle: in a RAG pipeline, you should measure **retrieval and generation separately**. At that point, we used Precision@K and Recall@K to evaluate the retrieval step. Those tell you "out of the K documents retrieved, how many were relevant?" and "out of all relevant documents, how many did we actually retrieve?"
 
-The formula: MRR = (1/|Q|) × Σ (1/rank_i) where rank_i is the position (1-based) of the first relevant document in the retrieval results for query i.
+Today I want to introduce another retrieval metric — **MRR, Mean Reciprocal Rank**. This one isn't in the demo we just ran. It's in the exercise you'll work on next. But I want to take a moment to explain what it is, because it measures something Precision@K and Recall@K don't capture: **where** the relevant document appears in the ranked list. Precision@K tells you whether the right doc is somewhere in the top K. MRR tells you whether it's at position 1, or buried at position 3 or 4. That matters because in many RAG systems, the LLM pays more attention to documents at the top of the context.
 
-If the correct document is always returned first, every rank is 1, every reciprocal rank is 1.0, and MRR = 1.0. Perfect.
+So why are we talking about this here? All the other evaluators we've seen — routing accuracy, keyword correctness, faithfulness — they measure the **final answer**. But when something goes wrong, you can't tell from the final answer alone whether the retriever fetched the wrong documents or the LLM misinterpreted the right documents. MRR isolates the retrieval layer. It tells you whether the vector store is doing its job, completely independent of the LLM. It lets you **pinpoint** whether a quality problem is a retrieval problem or a generation problem.
 
-If the correct document is usually in position 2, MRR ≈ 0.5.
+**Note:** MRR is NOT in the demo (demo.py). The demo only covers routing accuracy and keyword correctness — two simple evaluators to demonstrate the hill-climbing loop. MRR is implemented in the **exercise and solution** files (solution.py, Segment 8) because it requires understanding retrieval internals. You'll build it yourselves after seeing the demo.
 
-If it's often in position 3 or 4, MRR ≈ 0.25-0.33. Retrieval is unreliable.
+**The concept:** MRR measures how quickly the retriever finds the relevant document. The formula:
 
-Interpreting MRR:
+$$MRR = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{rank_i}$$
+
+where $rank_i$ is the position (1-based) of the **first** relevant document in the retrieval results for query $i$.
+
+**Worked example with 4 queries:**
+
+Imagine we ask 4 questions and check where the correct source document appears in the retriever's ranked results:
+
+| Query | Retrieved docs (ranked) | Correct doc | Rank | Reciprocal Rank |
+|-------|------------------------|-------------|------|-----------------|
+| "What is the overdraft fee?" | [account_fees.md, loan_policy.md, fraud_policy.md] | account_fees.md | 1 | 1/1 = **1.000** |
+| "What is the wire transfer limit?" | [fraud_policy.md, transfer_policy.md, account_fees.md] | transfer_policy.md | 2 | 1/2 = **0.500** |
+| "How do I report fraud?" | [account_fees.md, loan_policy.md, fraud_policy.md] | fraud_policy.md | 3 | 1/3 = **0.333** |
+| "What is the loan APR?" | [loan_policy.md, account_fees.md, transfer_policy.md] | loan_policy.md | 1 | 1/1 = **1.000** |
+
+$$MRR = \frac{1.000 + 0.500 + 0.333 + 1.000}{4} = \frac{2.833}{4} = 0.708$$
+
+**Reading this result:** 0.708 means the retriever is finding the right document reasonably quickly on average, but not consistently at rank 1. Two queries were perfect (rank 1), one was okay (rank 2), and one was weak (rank 3). Query 3 is the problem: the fraud policy document was buried at rank 3. That's a retrieval failure you'd never see by only looking at the final answer.
+
+**Interpreting MRR scores:**
 - Greater than 0.8: Good — relevant doc almost always in top 2.
 - 0.5–0.8: Acceptable — sometimes buried.
 - Less than 0.5: Poor — retriever is unreliable. Fix embeddings, chunk size, or top_k.
 
 **Critical distinction**: MRR evaluates the vector store and embeddings, NOT the LLM. If MRR is high but answers are still wrong, the problem is faithfulness or the LLM itself. If MRR is low, no amount of prompt engineering will fix it — you need to fix your retrieval.
+
+**How it connects to reranking:** This is exactly why we have the `enable_reranking` option in `build_support_agent()`. If MRR is low (say 0.5), it means relevant docs are being ranked 2nd or 3rd. Reranking over-fetches candidates and uses the LLM to re-score them, pushing the correct document to rank 1 — directly improving MRR.
 
 In the solution code, we use `state["retrieved_sources"]` — the list of filenames returned by the retriever — and check whether the expected source file appears, and at what rank. The 10 MRR queries in solution.py are deliberately designed to stress-test retrieval: some are easy, some are cross-domain, some have overlapping content across multiple documents.
 
@@ -1028,7 +1049,7 @@ This is the single most effective optimization. Every document you retrieve gets
 
 - top_k 5→3 saves 40% of context tokens immediately.
 - chunk_size 1000→400 gives smaller chunks, less noise.
-- Reranking: fetch 6 docs, score by relevance, keep best 3. Better quality AND lower cost.
+- Reranking: fetch 6 docs, LLM scores each for relevance, keep best 3. Better quality AND lower cost.
 - After reducing, check MRR to ensure the relevant doc is still in the top k.
 
 **Pattern 2 — Model Routing (medium impact, infrastructure investment).**

@@ -279,14 +279,36 @@ def build_support_agent(
         """
         question = state["query"]
         if enable_reranking:
-            # Over-fetch more docs, then re-sort by cosine similarity score
-            # and keep only the top_k most relevant
+            # Over-fetch candidate docs, then use the LLM to re-score each
+            # one against the query and keep only the top_k most relevant
             fetch_k = rerank_fetch_k or top_k * 2
-            scored_docs = vectorstore.similarity_search_with_relevance_scores(
-                question, k=fetch_k
-            )
-            scored_docs.sort(key=lambda x: x[1], reverse=True)
-            retrieved_docs = [doc for doc, _ in scored_docs[:top_k]]
+            candidate_docs = vectorstore.similarity_search(question, k=fetch_k)
+
+            # LLM-as-reranker: ask the model to score each doc's relevance 0-10
+            rerank_prompt = ChatPromptTemplate.from_messages([
+                ("system",
+                 "You are a relevance scoring system. Given a query and a document, "
+                 "rate how relevant the document is to answering the query on a scale "
+                 "of 0 to 10. Respond with ONLY a single integer."),
+                ("human",
+                 "Query: {query}\n\nDocument:\n{document}\n\nRelevance score (0-10):"),
+            ])
+            rerank_chain = rerank_prompt | llm | StrOutputParser()
+
+            scored = []
+            for doc in candidate_docs:
+                score_str = rerank_chain.invoke({
+                    "query": question,
+                    "document": doc.page_content,
+                })
+                try:
+                    score = int(score_str.strip())
+                except ValueError:
+                    score = 0
+                scored.append((doc, score))
+
+            scored.sort(key=lambda x: x[1], reverse=True)
+            retrieved_docs = [doc for doc, _ in scored[:top_k]]
         else:
             # Standard retrieval — returns top_k chunks by vector similarity
             retrieved_docs = retriever.invoke(question)

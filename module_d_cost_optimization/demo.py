@@ -711,7 +711,7 @@ What we optimized:
   - chunk_size: 1000 -> 400 (less context per chunk)
   - chunk_overlap: 100 -> 50 (less duplicated text)
   - top_k: 5 -> 3 (fewer retrieved documents)
-  - Reranking: fetch 6, score by relevance, keep best 3
+  - Reranking: fetch 6, LLM scores each for relevance, keep best 3
 
 What else to consider in production:
   - Prompt caching (Anthropic/OpenAI) - reuse cached system prompts
