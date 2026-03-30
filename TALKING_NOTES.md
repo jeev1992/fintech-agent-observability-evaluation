@@ -150,15 +150,17 @@ That's the problem. Today we're going to solve all four.
 ### Slide 13 — System Overview Diagram
 **Time: ~3 min**
 
-Let's look at the full architecture of what we've built. Don't worry about reading every box — I'll walk you through it.
+This diagram shows everything we're building today. You don't need to understand every box right now — we'll cover each piece in its own module. Just follow the flow.
 
-On the left, a customer query comes in. It hits the Supervisor agent first, which classifies intent into one of three categories: policy, account status, or escalation.
+A customer query comes in at the bottom. Before it reaches the agent, it passes through input guardrails — that's Module C. These are safety checks that block dangerous or inappropriate queries before they ever touch the LLM. Think of it as a security checkpoint.
 
-Based on that classification, it routes to one of three specialist agents. The Policy agent does RAG — it retrieves relevant chunks from our four policy documents using Chroma as the vector store, then generates an answer with GPT-4o-mini. The Account agent does a mock database lookup using a regex to extract the account number. The Escalation agent generates an empathetic handoff message.
+If the query is safe, it becomes a "clean query" and enters the core agent system in the middle. The Supervisor classifies what the customer is asking about and routes to one of three specialist agents: a Policy agent that looks up banking policies, an Account agent that checks account details, or an Escalation agent that handles complaints.
 
-Wrapped around this core system are four layers we're building today. Module A wraps everything with LangSmith tracing. Module B adds evaluation harnesses — routing evaluators, LLM-as-judge, MRR, DeepEval. Module C adds guardrail layers before and after the agent — regex blocks, moderation API, Presidio PII redaction, Guardrails AI. Module D adds token counting, cost tracking, semantic caching, and audit logging.
+After the agent generates a response, it passes through output guardrails — also Module C. These catch anything the agent shouldn't be saying, like accidentally revealing someone's personal information.
 
-The same agent code runs through all four modules. We're just adding different wrappers and measurement layers on top.
+The four colored boxes around the edges are the four modules we're building today. Module A adds observability — so we can see what's happening inside. Module B adds evaluation — so we can measure quality. Module C adds those guardrails we just talked about. Module D adds cost tracking — so we know what we're spending.
+
+Don't worry about the details in each box. By the end of today, you'll have built every one of them.
 
 ---
 
@@ -244,23 +246,37 @@ LangSmith is not just a LangChain tool — it works with any LLM framework. But 
 ---
 
 ### Slide 19 — Multi-Agent Graph Architecture: fintech_support_agent.py
-**Time: ~5 min**
+**Time: ~7 min**
 
-Let me walk you through the graph architecture that powers our system. This is in `project/fintech_support_agent.py`.
+Let me walk you through the graph architecture that powers our system. This is in `project/fintech_support_agent.py`. Take a moment to absorb this — this is the single codebase that all four modules today build on top of.
 
-The entry point is the `classify_intent` node — this is the supervisor. It looks at the incoming query and decides whether it's a policy question, an account status question, or an escalation. It uses a straightforward LLM call with a carefully designed prompt.
+The entry point is the `classify_intent` node — this is the supervisor. It makes one LLM call that looks at the incoming query and classifies it into one of three categories: "policy", "account_status", or "escalation". That's all it does — it doesn't generate an answer, it just picks which specialist should handle the query.
 
-From `classify_intent`, we have conditional edges. Based on the intent, LangGraph routes to one of three agent nodes: `policy_agent`, `account_agent`, or `escalation_agent`. Each of these is a separate node in the graph.
+From `classify_intent`, LangGraph routes to one of three agent nodes based on that classification. Let me walk through each one.
 
-The `policy_agent` runs the full RAG pipeline — embed the query, search Chroma, format the retrieved documents as context, feed everything to GPT-4o-mini for answer generation.
+**The Policy Agent** is the most complex. It uses RAG — Retrieval-Augmented Generation. Here's what happens step by step:
+1. We load four policy markdown files from disk — `account_fees.md`, `loan_policy.md`, `fraud_policy.md`, and `transfer_policy.md`
+2. We split each document into smaller chunks using `RecursiveCharacterTextSplitter` — this is because LLMs have limited context windows and we want to send only the relevant parts
+3. We embed those chunks into vectors using OpenAI's embedding model and store them in Chroma, an in-memory vector database
+4. When a customer asks a question, we embed their query the same way and search Chroma for the most similar chunks — that's the "retrieval" part
+5. We feed those retrieved chunks as context to GPT-4o-mini, which generates an answer based only on that context — that's the "generation" part
 
-The `account_agent` uses regex to extract an account number from the query (`ACC-\d{5}`), then does a dictionary lookup in MOCK_ACCOUNTS. No LLM involved — just a direct lookup.
+This is the standard RAG pattern. If you've seen it before, great. If not, just remember: search for relevant documents first, then give them to the LLM so it has the facts it needs.
 
-The `escalation_agent` generates an empathetic response acknowledging the customer's concern and offering to escalate to a human agent.
+**The Account Agent** uses regex to extract an account number from the query — something like `ACC-12345`. It then looks up that account in a mock database — a Python dictionary with three test accounts:
+- ACC-12345: Alice Johnson, Premium Checking, $12,450 balance, active
+- ACC-67890: Bob Smith, Basic Checking, $234 balance, active  
+- ACC-11111: Carol Davis, High-Yield Savings, $85,320 balance, **frozen** due to suspected fraud
 
-All three agents write their output into a shared `SupportState` TypedDict — which has fields for query, intent, response, context, and retrieved_sources. This shared state object is what flows through the entire graph.
+Once it finds the account, it strips the SSN before passing the data to the LLM. This is important — even though the mock database has SSN data, the code removes it before the LLM ever sees it. That's a code-level safety measure. Then GPT-4o-mini generates a friendly summary of the account details.
 
-Understanding this graph is critical because every module today — observability, evaluation, guardrails, cost — wraps around this same system.
+So the account agent also makes an LLM call — every path through the system hits the LLM at least twice: once for the supervisor, once for the specialist agent.
+
+**The Escalation Agent** is the simplest. It doesn't look anything up — no database, no document retrieval. It just takes the customer's complaint and generates an empathetic response acknowledging their frustration and directing them to human support channels.
+
+All three agents write their output into a shared `SupportState` TypedDict — which has fields for query, intent, response, context, and retrieved_sources. This shared state object is what flows through the entire graph and what every module reads from.
+
+Understanding this architecture is critical because every module today — observability, evaluation, guardrails, cost — wraps around this same system. You'll see these same agent names in every trace, every evaluation, every guardrail log.
 
 ---
 
@@ -273,9 +289,16 @@ First, `SupportState`. This is a TypedDict with five fields: query (the raw cust
 
 `SupportState` is the contract between all modules. When Module B evaluates routing accuracy, it reads `state["intent"]`. When Module C's Presidio guard scans the output, it reads `state["response"]`. When Module D tracks tokens, it reads `state["context"]` length. Everything flows through this one object.
 
-Second, `build_support_agent()`. This is a factory function that takes several parameters: `collection_name` (which Chroma collection to use), `chunk_size`, `chunk_overlap`, `top_k`, `model`, `system_prompt`, and reranking options. It builds the full RAG pipeline and the LangGraph, and returns a dict with: `app` (the compiled LangGraph), `retriever`, `format_docs`, `llm`, `rag_chain`, and `vectorstore`.
+Second, `build_support_agent()`. This is a factory function — you call it, and it builds the entire agent system from scratch. The key parameters to know about:
+- `chunk_size` — how big the document chunks are (bigger chunks = more context per retrieval)
+- `chunk_overlap` — how much chunks overlap (helps avoid cutting a sentence in half)
+- `top_k` — how many chunks the retriever returns per query
+- `model` — which OpenAI model to use
+- `policy_system_prompt` — the instructions given to the Policy Agent
 
-The reason we have a factory function instead of a global is that in Module B, we call `build_support_agent()` twice — once with `chunk_size=100` for the baseline and once with `chunk_size=1500` for the improved version. The factory pattern makes A/B experiments trivial.
+It returns a dict with the compiled LangGraph (`app`), the retriever, the LLM, and the vector store — everything you need to run and inspect the system.
+
+The reason we have a factory function instead of a global is that in Module B, we call `build_support_agent()` twice — once with `chunk_size=100` for the baseline and once with `chunk_size=1500` for the improved version. Same code, different configuration, measurable difference. The factory pattern makes A/B experiments trivial.
 
 ---
 

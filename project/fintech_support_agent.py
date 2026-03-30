@@ -11,24 +11,42 @@ Architecture:
         → Escalation Agent (empathetic handoff)
 """
 
+# ── Standard library imports ──
 import os
-import re
-import json
+import re       # Used to extract account IDs (e.g. ACC-12345) from user queries
+import json     # Used to serialize mock account data into LLM-readable context
 from pathlib import Path
 from typing import TypedDict, Literal
 
+# ── LangChain / LangGraph imports ──
+# RecursiveCharacterTextSplitter: splits policy docs into overlapping chunks for embedding
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+# Document: lightweight wrapper holding page_content + metadata (source filename)
 from langchain_core.documents import Document
+# ChatOpenAI: thin wrapper around the OpenAI Chat Completions API
+# OpenAIEmbeddings: calls the text-embedding-3-small model to vectorize chunks
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+# Chroma: in-process vector store used for semantic retrieval (RAG)
 from langchain_chroma import Chroma
+# ChatPromptTemplate: builds system + human message pairs for each agent
 from langchain.prompts import ChatPromptTemplate
+# StrOutputParser: extracts the raw string content from an LLM response message
 from langchain.schema.output_parser import StrOutputParser
+# RunnablePassthrough: passes the input unchanged — used in the RAG chain to
+#   forward the user question while the retriever branch fetches context
 from langchain.schema.runnable import RunnablePassthrough
+# StateGraph: declarative graph builder for multi-agent orchestration
+# END: sentinel node that terminates graph execution
 from langgraph.graph import StateGraph, END
 
+# Absolute path to the /project/documents/ folder containing the four policy
+# markdown files that the Policy Agent uses for Retrieval-Augmented Generation.
 DOCUMENTS_DIR = Path(__file__).parent / "documents"
 
-# --- Mock account database ---
+# ── Mock account database ──
+# In production this would be a real database call.  Three accounts are provided
+# to demonstrate active accounts, frozen/fraud-review accounts, and varying
+# balance tiers.  The Account Agent queries this dict by account ID.
 MOCK_ACCOUNTS = {
     "ACC-12345": {
         "account_id": "ACC-12345",
@@ -79,14 +97,25 @@ MOCK_ACCOUNTS = {
 }
 
 
+# ── LangGraph shared state ──
+# Every node in the graph reads from and writes to this typed dictionary.
+# LangGraph merges each node's returned dict back into this state automatically.
 class SupportState(TypedDict):
-    query: str
-    intent: str
-    response: str
-    context: str
-    retrieved_sources: list[str]
+    query: str                    # The original customer question
+    intent: str                   # Classified intent: "policy" | "account_status" | "escalation"
+    response: str                 # Final answer returned to the customer
+    context: str                  # Retrieved context (policy chunks or account JSON)
+    retrieved_sources: list[str]  # Source filenames of retrieved docs (for traceability)
 
 
+# Default system prompt for the Policy Agent.  Key design choices:
+#   - "based ONLY on the provided policy documents" → prevents hallucination
+#   - Explicit fallback phrasing → gives a graceful "I don't know" answer
+#   - PII guardrail instruction → defense-in-depth even before Module C adds
+#     programmatic guardrails
+# Callers can override this via the `policy_system_prompt` parameter in
+# build_support_agent() to test different prompting strategies (e.g. Module B
+# A/B experiments).
 DEFAULT_POLICY_SYSTEM_PROMPT = (
     "You are a helpful customer support agent for SecureBank.\n"
     "Answer the customer's question based ONLY on the provided policy documents.\n"
@@ -111,15 +140,39 @@ def build_support_agent(
     """
     Build and return the multi-agent FinTech support system.
 
-    Returns dict with keys:
-        app:              compiled LangGraph application
-        retriever:        the vector store retriever
-        format_docs:      document formatting function
-        llm:              the language model
-        rag_chain:        the policy RAG chain
-        vectorstore:      the Chroma vector store
+    This is the main factory function.  It:
+      1. Loads the four policy markdown files from disk
+      2. Chunks them with RecursiveCharacterTextSplitter
+      3. Embeds chunks into an in-memory Chroma vector store
+      4. Wires up three specialist agents + a supervisor into a LangGraph
+
+    Args:
+        collection_name : Chroma collection name (change to avoid collisions
+                          when running multiple tests in the same process).
+        chunk_size      : Maximum characters per chunk.
+        chunk_overlap   : Overlap between consecutive chunks (helps preserve
+                          context at chunk boundaries).
+        top_k           : Number of chunks the retriever returns per query.
+        model           : OpenAI model name for all LLM calls.
+        policy_system_prompt : Override the default Policy Agent system prompt
+                               (used in Module B for A/B prompt experiments).
+        enable_reranking: If True, fetch more docs and re-sort by relevance
+                          score before trimming to top_k (Module B exercise).
+        rerank_fetch_k  : How many docs to fetch before reranking
+                          (defaults to top_k * 2 when enable_reranking=True).
+
+    Returns:
+        dict with keys:
+            app         : Compiled LangGraph application (invoke with ask())
+            retriever   : The Chroma vector store retriever
+            format_docs : Helper function that formats docs into a string
+            llm         : The ChatOpenAI language model instance
+            rag_chain   : The standalone Policy RAG chain (retriever → prompt → LLM)
+            vectorstore : The underlying Chroma vector store
     """
-    # --- Load documents ---
+    # ─── Step 1: Load policy documents from disk ───
+    # Each file becomes a single LangChain Document with its filename stored in
+    # metadata["source"] so we can trace which document a retrieved chunk came from.
     document_files = [
         "account_fees.md", "loan_policy.md",
         "fraud_policy.md", "transfer_policy.md",
@@ -129,28 +182,45 @@ def build_support_agent(
         content = (DOCUMENTS_DIR / filename).read_text(encoding="utf-8")
         all_documents.append(Document(page_content=content, metadata={"source": filename}))
 
-    # --- Chunk ---
+    # ─── Step 2: Split documents into chunks ───
+    # RecursiveCharacterTextSplitter tries split points in order:
+    #   "\n\n" → "\n" → " " → "" — so it prefers paragraph boundaries.
+    # chunk_overlap ensures that sentences straddling a boundary aren't lost.
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
     chunks = splitter.split_documents(all_documents)
 
-    # --- Embed and store ---
+    # ─── Step 3: Embed chunks and store in Chroma ───
+    # Uses OpenAI's text-embedding-3-small (1536-dim) for vectorization.
+    # Chroma runs in-memory here — no persistence, rebuilt each time
+    # build_support_agent() is called.
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     vectorstore = Chroma.from_documents(
         chunks, embeddings, collection_name=collection_name
     )
+    # The retriever wraps the vector store with a top-k similarity search.
     retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
 
     def format_docs(docs):
+        """Concatenate retrieved documents into a single string for the LLM context.
+
+        Each chunk is prefixed with its source filename in brackets so the LLM
+        (and human reviewers) can see which policy file the information came from.
+        Chunks are separated by '---' dividers for readability.
+        """
         return "\n\n---\n\n".join(
             f"[{doc.metadata.get('source', '')}]\n{doc.page_content}"
             for doc in docs
         )
 
+    # temperature=0 for deterministic, reproducible answers — important for
+    # evaluation (Module B) where we need consistent outputs to measure quality.
     llm = ChatOpenAI(model=model, temperature=0)
 
-    # --- RAG chain for Policy Agent ---
+    # ─── Step 4: Build the Policy Agent RAG chain ───
+    # This standalone chain is also exposed in the returned dict so Module B can
+    # invoke it directly for evaluation without going through the full graph.
     _policy_sys = policy_system_prompt or DEFAULT_POLICY_SYSTEM_PROMPT
     policy_prompt = ChatPromptTemplate.from_messages([
         ("system", _policy_sys),
@@ -158,12 +228,19 @@ def build_support_agent(
          "Context from our policy documents:\n\n{context}\n\n"
          "Customer question: {question}"),
     ])
+    # The RAG chain works in two parallel branches via RunnableParallel:
+    #   "context" branch: query → retriever → format_docs → string of chunks
+    #   "question" branch: query passes through unchanged (RunnablePassthrough)
+    # Both feed into the prompt template, then the LLM, then string extraction.
     rag_chain = (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | policy_prompt | llm | StrOutputParser()
     )
 
-    # --- Supervisor: intent classifier ---
+    # ─── Step 5: Define the Supervisor (intent classifier) ───
+    # The supervisor is the entry-point node. It makes a single LLM call to
+    # classify the customer query into one of three intents, which determines
+    # which specialist agent handles the request.
     classification_prompt = ChatPromptTemplate.from_messages([
         ("system",
          "Classify the customer query into exactly one category:\n"
@@ -178,16 +255,32 @@ def build_support_agent(
     ])
 
     def classify_intent(state):
+        """Supervisor node: classifies intent and writes it to state.
+
+        Falls back to "policy" if the LLM returns an unexpected value — this
+        ensures the graph always routes to a valid agent.
+        """
         chain = classification_prompt | llm | StrOutputParser()
         intent = chain.invoke({"query": state["query"]}).strip().lower()
+        # Guard against unexpected LLM output — default to the safest route
         if intent not in ("policy", "account_status", "escalation"):
             intent = "policy"
         return {"intent": intent}
 
-    # --- Policy Agent ---
+    # ─── Step 6: Define the Policy Agent ───
+    # Handles "policy" intent.  Retrieves relevant chunks from the vector store,
+    # feeds them as context to the LLM, and returns a grounded answer.
     def policy_agent(state):
+        """Policy Agent node: answers banking policy questions using RAG.
+
+        When `enable_reranking` is True (Module B exercise), it over-fetches
+        documents and re-sorts by relevance score to improve retrieval quality
+        (measured via MRR — Mean Reciprocal Rank).
+        """
         question = state["query"]
         if enable_reranking:
+            # Over-fetch more docs, then re-sort by cosine similarity score
+            # and keep only the top_k most relevant
             fetch_k = rerank_fetch_k or top_k * 2
             scored_docs = vectorstore.similarity_search_with_relevance_scores(
                 question, k=fetch_k
@@ -195,9 +288,13 @@ def build_support_agent(
             scored_docs.sort(key=lambda x: x[1], reverse=True)
             retrieved_docs = [doc for doc, _ in scored_docs[:top_k]]
         else:
+            # Standard retrieval — returns top_k chunks by vector similarity
             retrieved_docs = retriever.invoke(question)
         context = format_docs(retrieved_docs)
+        # Track which source files were used (for observability / evaluation)
         sources = [doc.metadata.get("source", "") for doc in retrieved_docs]
+        # Note: we call the prompt→LLM chain directly (not rag_chain) because
+        # we already fetched the docs above and need the sources list.
         chain = policy_prompt | llm | StrOutputParser()
         answer = chain.invoke({"context": context, "question": question})
         return {
@@ -206,7 +303,9 @@ def build_support_agent(
             "retrieved_sources": sources,
         }
 
-    # --- Account Agent ---
+    # ─── Step 7: Define the Account Agent ───
+    # Handles "account_status" intent.  Looks up mock account data by ID and
+    # uses the LLM to formulate a natural-language summary.
     account_prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are a customer support agent helping with account inquiries at SecureBank.\n"
@@ -218,9 +317,19 @@ def build_support_agent(
     ])
 
     def account_agent(state):
+        """Account Agent node: looks up account details from the mock database.
+
+        Flow:
+          1. Extract account ID (ACC-XXXXX) from the query using regex
+          2. Look up the account in MOCK_ACCOUNTS
+          3. Strip the SSN before sending to the LLM (defense-in-depth PII protection)
+          4. Ask the LLM to compose a friendly summary of the account data
+        """
         query = state["query"]
+        # Try to find an account number pattern in the user's question
         match = re.search(r"ACC-\d+", query, re.IGNORECASE)
         if not match:
+            # No account number found — ask the user to provide one
             return {
                 "response": (
                     "I'd be happy to help with your account! Could you please "
@@ -233,6 +342,7 @@ def build_support_agent(
         account_id = match.group(0).upper()
         account = MOCK_ACCOUNTS.get(account_id)
         if not account:
+            # Account ID parsed but doesn't exist in our mock data
             return {
                 "response": (
                     f"I couldn't find account {account_id} in our system. "
@@ -241,14 +351,18 @@ def build_support_agent(
                 "context": "",
                 "retrieved_sources": [],
             }
-        # Remove SSN from context sent to LLM for safety
+        # SECURITY: Strip SSN (even last-4) before it reaches the LLM context.
+        # This is a code-level safeguard — Module C adds additional guardrails.
         safe_account = {k: v for k, v in account.items() if k != "ssn_last4"}
         context = json.dumps(safe_account, indent=2)
         chain = account_prompt | llm | StrOutputParser()
         response = chain.invoke({"account_data": context, "question": query})
         return {"response": response, "context": context, "retrieved_sources": []}
 
-    # --- Escalation Agent ---
+    # ─── Step 8: Define the Escalation Agent ───
+    # Handles "escalation" intent.  Unlike the other agents, this one does NOT
+    # perform any retrieval — it simply generates an empathetic response and
+    # directs the customer to human support channels.
     escalation_prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are a senior customer support agent at SecureBank handling an escalation.\n"
@@ -263,11 +377,19 @@ def build_support_agent(
     ])
 
     def escalation_agent(state):
+        """Escalation Agent node: provides empathetic handoff to human support.
+
+        No retrieval or database lookup — the LLM generates a compassionate
+        acknowledgment and routes the customer to live support channels.
+        Module B uses G-Eval to measure the empathy quality of these responses.
+        """
         chain = escalation_prompt | llm | StrOutputParser()
         response = chain.invoke({"query": state["query"]})
         return {"response": response, "context": "", "retrieved_sources": []}
 
-    # --- Routing ---
+    # ─── Step 9: Define routing logic ───
+    # Maps the intent string (set by the supervisor) to the corresponding agent
+    # node name.  Falls back to "policy_agent" for any unknown intent.
     def route_by_intent(state) -> Literal[
         "policy_agent", "account_agent", "escalation_agent"
     ]:
@@ -277,33 +399,55 @@ def build_support_agent(
             "escalation": "escalation_agent",
         }.get(state["intent"], "policy_agent")
 
-    # --- Build graph ---
+    # ─── Step 10: Assemble the LangGraph ───
+    # Graph structure:
+    #
+    #   START → classify_intent ─┬─ "policy"          → policy_agent     → END
+    #                             ├─ "account_status"  → account_agent    → END
+    #                             └─ "escalation"      → escalation_agent → END
+    #
     graph = StateGraph(SupportState)
-    graph.add_node("classify_intent", classify_intent)
-    graph.add_node("policy_agent", policy_agent)
-    graph.add_node("account_agent", account_agent)
-    graph.add_node("escalation_agent", escalation_agent)
+    graph.add_node("classify_intent", classify_intent)    # Supervisor
+    graph.add_node("policy_agent", policy_agent)          # RAG over policy docs
+    graph.add_node("account_agent", account_agent)        # Mock DB lookup
+    graph.add_node("escalation_agent", escalation_agent)  # Empathetic handoff
 
     graph.set_entry_point("classify_intent")
+    # Conditional edges: the supervisor's output determines which agent runs next
     graph.add_conditional_edges("classify_intent", route_by_intent)
+    # Each agent terminates the graph after producing a response
     graph.add_edge("policy_agent", END)
     graph.add_edge("account_agent", END)
     graph.add_edge("escalation_agent", END)
 
     app = graph.compile()
 
+    # Return all key components so modules can access them individually.
+    # For example, Module B uses `retriever` and `vectorstore` for MRR evaluation,
+    # and Module D uses `llm` for token counting.
     return {
-        "app": app,
-        "retriever": retriever,
-        "format_docs": format_docs,
-        "llm": llm,
-        "rag_chain": rag_chain,
-        "vectorstore": vectorstore,
+        "app": app,              # The compiled LangGraph — pass to ask()
+        "retriever": retriever,  # Chroma retriever for direct retrieval tests
+        "format_docs": format_docs,  # Doc formatter (used in evaluation)
+        "llm": llm,              # ChatOpenAI instance (shared across agents)
+        "rag_chain": rag_chain,  # Standalone RAG chain (retriever → LLM)
+        "vectorstore": vectorstore,  # Raw Chroma store (for similarity_search_with_relevance_scores)
     }
 
 
 def ask(app, query: str) -> dict:
-    """Helper to invoke the support agent with a query."""
+    """Convenience helper to invoke the multi-agent system with a customer query.
+
+    Initializes all state fields to empty defaults and runs the full graph:
+    classify_intent → specialist agent → END.
+
+    Args:
+        app   : The compiled LangGraph application (from build_support_agent()["app"]).
+        query : The customer's natural-language question.
+
+    Returns:
+        The final SupportState dict containing intent, response, context, and sources.
+    """
     return app.invoke({
         "query": query,
         "intent": "",
