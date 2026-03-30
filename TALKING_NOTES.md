@@ -600,6 +600,8 @@ In the solution code, we use `state["retrieved_sources"]` — the list of filena
 ### Slide 36 — DeepEval + G-Eval: Open-Source Metrics for CI/CD
 **Time: ~4 min**
 
+**Note:** None of this is in the demo. The demo only covered routing accuracy, keyword correctness, and the A/B hill-climbing experiment. DeepEval metrics (faithfulness, hallucination, answer relevancy) and G-Eval (empathy scoring) are in the **exercise and solution** files — you'll implement them yourselves in the hands-on portion.
+
 DeepEval is an open-source evaluation framework — think pytest but for LLM outputs. It's free, Python-native, and integrates with CI/CD.
 
 The table on the slide compares LangSmith and DeepEval. LangSmith has excellent tracing and observability, a web dashboard, and is easy to set up. DeepEval has no web UI for CI/CD (it's CLI-only), but it has 30+ pre-built metrics, is pytest-native, and is fully open-source.
@@ -608,14 +610,16 @@ They complement each other. Use LangSmith for the interactive experiments and de
 
 The code on the slide shows `FaithfulnessMetric` and `HallucinationMetric` from deepeval. You call `assert_test()` with a test case — input, actual output, expected output, and retrieval context — and it fails if the score drops below threshold.
 
-**G-Eval** is DeepEval's most powerful feature. It lets you define evaluation criteria in plain English. The example shows an empathy evaluator with four criteria: "1) Acknowledge frustration directly, 2) Offer a clear next step, 3) Do NOT mention competitors, 4) Warm, professional tone." The LLM scores 0 to 10 against these criteria.
+**G-Eval** is DeepEval's most powerful feature. It lets you define evaluation criteria in plain English. The example shows an empathy evaluator with four criteria: "1) Acknowledge the customer's frustration or distress, 2) Validate their feelings without being dismissive, 3) Offer a clear next step (escalation, contact info), 4) Use warm, professional language." The LLM scores 0 to 1 against these criteria.
 
-This is incredibly powerful for custom quality dimensions. You can evaluate tone, regulatory compliance phrasing, accessibility of language — anything you can describe in English.
+This is incredibly powerful for custom quality dimensions. You can evaluate tone, regulatory compliance phrasing, accessibility of language — anything you can describe in English. In our solution code, the empathy evaluator uses four criteria: "1) Acknowledge the customer's frustration or distress, 2) Validate their feelings without being dismissive, 3) Offer a clear next step (escalation, contact info), 4) Use warm, professional language." The LLM scores 0 to 1 against these criteria.
 
 ---
 
 ### Slide 37 — Integrating Evaluation into CI/CD Pipelines
 **Time: ~4 min**
+
+**Note:** This is conceptual — there's no CI/CD code in the demo, exercise, or solution files. I'm showing you the pattern so you know how to take what we've built today and plug it into a real deployment pipeline.
 
 Production evaluation doesn't just run on demand — it runs on every PR.
 
