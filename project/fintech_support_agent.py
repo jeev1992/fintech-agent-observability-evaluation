@@ -373,10 +373,10 @@ def build_support_agent(
                 "context": "",
                 "retrieved_sources": [],
             }
-        # SECURITY: Strip SSN (even last-4) before it reaches the LLM context.
-        # This is a code-level safeguard — Module C adds additional guardrails.
-        safe_account = {k: v for k, v in account.items() if k != "ssn_last4"}
-        context = json.dumps(safe_account, indent=2)
+        # NOTE: SSN (last-4) is intentionally NOT stripped here so that
+        # Module C's guardrails demo can show the data leakage risk.
+        # In production, you would strip PII before it reaches the LLM.
+        context = json.dumps(account, indent=2)
         chain = account_prompt | llm | StrOutputParser()
         response = chain.invoke({"account_data": context, "question": query})
         return {"response": response, "context": context, "retrieved_sources": []}
