@@ -718,7 +718,7 @@ Look at the table on the slide.
 
 A prompt instruction is text in the system prompt. Something like "Never reveal SSNs" or "Only answer banking questions." The mechanism is probabilistic — the LLM usually follows it. But under pressure, under adversarial prompting, under an unusual phrasing, it may not. Bypass resistance is LOW. An injection attack can override it. Cost: free, it's already in your prompt.
 
-A guardrail is code. It's a regex, a moderation API call, or an NER model that runs before or after the LLM — and it doesn't ask the LLM's permission. Its mechanism is deterministic. Code always runs. Bypass resistance is HIGH — you'd need to break the code, not the prompt. Cost: a few milliseconds and a few lines of code.
+A guardrail is code. It's a regex, a moderation API call, or an NER model that runs before or after the LLM — and it doesn't ask the LLM's permission. NER stands for Named Entity Recognition — it's an ML model that identifies entities like names, emails, phone numbers, and SSNs in text by understanding context, not just pattern matching. Unlike regex, NER knows "Alice Johnson" is a person even without a predefined list. Its mechanism is deterministic. Code always runs. Bypass resistance is HIGH — you'd need to break the code, not the prompt. Cost: a few milliseconds and a few lines of code.
 
 The analogy I use: a sign on a door that says "Authorized Personnel Only" is a prompt instruction. An actual locked door is a guardrail.
 
@@ -973,7 +973,7 @@ Two takeaways from this:
 1. Output tokens are 4-5× more expensive than input tokens. Minimize response length where possible.
 2. System prompts are billed on EVERY call. A 1,000-token system prompt at 1,000 queries per day is 1 million tokens per day just in system prompts. At GPT-4o-mini prices, that's $0.15/day — $55/year — just for the system prompt.
 
-The code at the bottom shows tiktoken counting a supervisor prompt. The supervisor prompt is about 90 tokens. At 1,000 queries/day: 90,000 tokens/day. Just for the supervisor. Now multiply by all agents.
+The code at the bottom shows tiktoken counting a supervisor prompt. tiktoken is OpenAI's open-source tokenizer library — it lets you count exactly how many tokens a string will cost before you ever make an API call. It runs locally, is instant, and costs nothing. The supervisor prompt is about 90 tokens. At 1,000 queries/day: 90,000 tokens/day. Just for the supervisor. Now multiply by all agents.
 
 That daily $0.013 in system prompts alone at 1K queries/day doesn't sound like much. But it scales linearly with query volume.
 
