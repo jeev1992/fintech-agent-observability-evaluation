@@ -2,7 +2,7 @@
 Module D Solution: Production-Grade Cost Optimization
 -------------------------------------------------------
 Full working solution: structured logging, token counting,
-before/after cost comparison with reranking, semantic caching,
+before/after cost comparison, semantic caching,
 per-intent breakdown, quality regression, and audit logging.
 """
 
@@ -279,10 +279,10 @@ def run_measurement(agent_components, config_name, tracker, cache=None):
 
 
 # ===================================================================
-# SEGMENT 14: TOKEN COUNTING
+# SEGMENT 1: TOKEN COUNTING
 # ===================================================================
 print("=" * 70)
-print("SEGMENT 14: TOKEN COUNTING")
+print("SEGMENT 1: TOKEN COUNTING")
 print("=" * 70)
 
 # --- SOLUTION 2: Count tokens ---
@@ -312,7 +312,7 @@ print(f"  on top of what LangSmith provides out of the box.")
 
 
 # ===================================================================
-# SEGMENT 15: BEFORE / AFTER COMPARISON
+# SEGMENT 2: BEFORE / AFTER COMPARISON
 # ===================================================================
 
 # --- SOLUTION 3: Build BASELINE ---
@@ -328,18 +328,17 @@ baseline_results = run_measurement(
     baseline_agent, "BEFORE: Baseline (chunk=1000, k=5)", baseline_tracker,
 )
 
-# --- SOLUTION 5: Build OPTIMIZED with reranking ---
-print("\nBuilding OPTIMIZED pipeline (chunk=400, k=3, reranking)...")
+# --- SOLUTION 5: Build OPTIMIZED ---
+print("\nBuilding OPTIMIZED pipeline (chunk=400, k=3)...")
 optimized_agent = build_support_agent(
     collection_name="sol_d_optimized",
     chunk_size=400, chunk_overlap=50, top_k=3,
-    enable_reranking=True, rerank_fetch_k=6,
 )
 
 # --- SOLUTION 6: Measure OPTIMIZED ---
 optimized_tracker = CostTracker(daily_budget=1.0, per_query_alert=0.005)
 optimized_results = run_measurement(
-    optimized_agent, "AFTER: Optimized (chunk=400, k=3, reranked)",
+    optimized_agent, "AFTER: Optimized (chunk=400, k=3)",
     optimized_tracker,
 )
 

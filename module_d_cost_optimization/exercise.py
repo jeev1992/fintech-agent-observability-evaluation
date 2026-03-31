@@ -5,8 +5,8 @@ Build a production-grade cost measurement and optimization pipeline
 for the FinTech multi-agent support system.
 
 Segments covered:
-  14. Token counting & cost logging (enhanced)
-  15. Before/after cost comparison (production-grade)
+  1. Token counting & cost logging (enhanced)
+  2. Before/after cost comparison (production-grade)
 
 Production features you will build:
   - Structured JSON logging with trace IDs
@@ -15,7 +15,6 @@ Production features you will build:
   - Cost threshold alerting and budget tracking
   - Audit logging (JSONL) for fintech compliance
   - Quality regression testing after optimization
-  - Reranking for improved RAG retrieval
 """
 
 import os
@@ -221,10 +220,10 @@ class CostTracker:
 
 
 # ===================================================================
-# SEGMENT 14: TOKEN COUNTING
+# SEGMENT 1: TOKEN COUNTING
 # ===================================================================
 print("=" * 70)
-print("SEGMENT 14: TOKEN COUNTING")
+print("SEGMENT 1: TOKEN COUNTING")
 print("=" * 70)
 
 supervisor_prompt = (
@@ -255,7 +254,7 @@ print("Complete TODO 2 to count tokens.\n")
 
 
 # ===================================================================
-# SEGMENT 15: BEFORE / AFTER COMPARISON
+# SEGMENT 2: BEFORE / AFTER COMPARISON
 # ===================================================================
 
 # ---------------------------------------------------------------------------
@@ -303,13 +302,12 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# TODO 5: Build the OPTIMIZED pipeline with reranking
+# TODO 5: Build the OPTIMIZED pipeline
 #
 # Use build_support_agent() with:
 #   - collection_name="exercise_optimized"
 #   - chunk_size=400, chunk_overlap=50
 #   - top_k=3
-#   - enable_reranking=True, rerank_fetch_k=6
 # ---------------------------------------------------------------------------
 optimized_agent = None  # Replace with build_support_agent(...)
 
@@ -329,7 +327,7 @@ optimized_results = []
 if optimized_agent is not None:
     optimized_app = optimized_agent["app"]
     print(f"\n{'=' * 70}")
-    print(f"MEASURING: AFTER: Optimized (chunk=400, k=3, reranked)")
+    print(f"MEASURING: AFTER: Optimized (chunk=400, k=3)")
     print(f"{'=' * 70}")
 
     # YOUR MEASUREMENT LOOP HERE

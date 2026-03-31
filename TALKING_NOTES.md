@@ -1028,7 +1028,6 @@ Let me walk you through the expected results from running our Before/After exper
 - chunk_size: 1000 → 400
 - chunk_overlap: 100 → 50
 - top_k: 5 → 3
-- enable_reranking: True
 
 **Results:**
 - Average prompt tokens: 1,240 → 780. A 37% reduction. Why? Because we're retrieving 3 chunks instead of 5, and each chunk is 400 characters instead of 1,000. Less context = fewer tokens.
@@ -1053,7 +1052,7 @@ This is the single most effective optimization. Every document you retrieve gets
 
 - top_k 5→3 saves 40% of context tokens immediately.
 - chunk_size 1000→400 gives smaller chunks, less noise.
-- Reranking: fetch 6 docs, LLM scores each for relevance, keep best 3. Better quality AND lower cost.
+- Reranking: fetch 6 docs, LLM scores each for relevance, keep best 3. Improves QUALITY but adds LLM calls — a cost tradeoff, not a cost savings.
 - After reducing, check MRR to ensure the relevant doc is still in the top k.
 
 **Pattern 2 — Model Routing (medium impact, infrastructure investment).**
