@@ -110,13 +110,13 @@ Each module has a `notes.md` file with detailed reference documentation for that
 
 ### 1. Prerequisites
 
-- Python 3.10+
+- Python 3.12 (3.14 is **not** supported — `tiktoken` and other packages lack pre-built wheels)
 - An OpenAI API key
 - A free LangSmith account
 
 **Verify installation:**
 ```bash
-python --version  # should be 3.10+
+python --version  # should be 3.12.x
 ```
 
 ### 2. Clone or open this repo
@@ -128,14 +128,16 @@ cd fintech-agent-observability-evaluation
 
 ### 3. Create a virtual environment
 
+> **Important**: Use Python 3.12. On Windows, if your default `python` points to a different version, use `py -3.12` instead.
+
 **Windows (PowerShell):**
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 ```
 
 **macOS/Linux:**
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 ```
 
 ### 4. Activate the virtual environment
