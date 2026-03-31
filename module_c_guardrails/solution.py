@@ -96,9 +96,11 @@ try:
     from guardrails.hub import RegexMatch, ToxicLanguage, CompetitorCheck
 
     # --- SOLUTION 2: RegexMatch for SSN ---
+    # NOTE: match_type="search" treats a regex match as VALID (pass).
+    # So we use a negative lookahead — the regex matches only when NO SSN is present.
     ssn_guard = Guard().use(
         RegexMatch(
-            regex=r"\b\d{3}-\d{2}-\d{4}\b",
+            regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$",
             match_type="search",
             on_fail="exception",
         )
@@ -121,7 +123,7 @@ try:
     # --- SOLUTION 3: Full guard with all validators ---
     full_guard = Guard().use_many(
         RegexMatch(
-            regex=r"\b\d{3}-\d{2}-\d{4}\b",
+            regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$",
             match_type="search",
             on_fail="exception",
         ),
@@ -129,7 +131,7 @@ try:
             on_fail="exception",
         ),
         CompetitorCheck(
-            competitors=["Chase", "Wells Fargo", "Citi", "Bank of America", "Capital One"],
+            competitors=["Chase", "Chase Bank", "Wells Fargo", "Citi", "Bank of America", "Capital One"],
             on_fail="exception",
         ),
     )

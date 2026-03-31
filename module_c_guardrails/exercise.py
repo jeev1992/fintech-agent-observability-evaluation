@@ -149,7 +149,7 @@ else:
 #
 # Extend your guard to also check for:
 #   - Toxic language (using ToxicLanguage validator)
-#   - Competitor mentions (Chase, Wells Fargo, Citi, Bank of America, Capital One)
+#   - Competitor mentions (Chase, Chase Bank, Wells Fargo, Citi, Bank of America, Capital One)
 #
 # from guardrails.hub import ToxicLanguage, CompetitorCheck
 #

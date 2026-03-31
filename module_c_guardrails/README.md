@@ -91,8 +91,18 @@ You need Guardrails AI and Presidio installed:
 ```bash
 # Install dependencies
 pip install guardrails-ai presidio-analyzer presidio-anonymizer
+python -m spacy download en_core_web_lg
+```
 
-# Install Guardrails Hub validators
+Before installing hub validators, you need a free Guardrails Hub token:
+
+1. Go to https://hub.guardrailsai.com/keys and sign up / log in
+2. Copy your token
+3. Run `guardrails configure` and paste the token when prompted
+
+Then install the validators:
+
+```bash
 guardrails hub install hub://guardrails/regex_match
 guardrails hub install hub://guardrails/toxic_language
 guardrails hub install hub://guardrails/competitor_check

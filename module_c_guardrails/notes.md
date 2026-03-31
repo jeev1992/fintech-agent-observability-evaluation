@@ -371,8 +371,8 @@ from guardrails.hub import RegexMatch
 
 guard = Guard().use(
     RegexMatch(
-        regex=r"\b\d{3}-\d{2}-\d{4}\b",   # SSN pattern
-        match_type="search",
+        regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$",   # (?s)=DOTALL so . matches newlines in multi-line responses
+        match_type="search",    # match = valid, so lookahead inverts the logic
         on_fail="exception",
     )
 )
@@ -403,7 +403,7 @@ RegexMatch blocks outputs that match specific patterns. Perfect for PII with kno
 
 ```python
 # Social Security Numbers: ###-##-####
-RegexMatch(regex=r"\b\d{3}-\d{2}-\d{4}\b", match_type="search", on_fail="exception")
+RegexMatch(regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$", match_type="search", on_fail="exception")
 
 # Credit card numbers: 16 digits in groups of 4
 RegexMatch(regex=r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", match_type="search", on_fail="exception")
@@ -451,14 +451,16 @@ Detects mentions of competitor brands:
 ```python
 from guardrails.hub import CompetitorCheck
 
+# NOTE: CompetitorCheck uses entity matching, not substring matching.
+# "Chase Bank" is a different entity than "Chase" — include both variants.
 guard = Guard().use(
     CompetitorCheck(
-        competitors=["Chase", "Wells Fargo", "Citi", "Bank of America", "Capital One"],
+        competitors=["Chase", "Chase Bank", "Wells Fargo", "Citi", "Bank of America", "Capital One"],
         on_fail="exception",
     )
 )
 
-# Blocks: "Unlike Chase, we offer lower fees."
+# Blocks: "Unlike Chase Bank, we offer lower fees."
 # Passes: "Our overdraft fee is $35 per transaction."
 ```
 
@@ -469,9 +471,9 @@ from guardrails import Guard
 from guardrails.hub import RegexMatch, ToxicLanguage, CompetitorCheck
 
 guard = Guard().use_many(
-    RegexMatch(regex=r"\b\d{3}-\d{2}-\d{4}\b", match_type="search", on_fail="exception"),
+    RegexMatch(regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$", match_type="search", on_fail="exception"),
     ToxicLanguage(on_fail="exception"),
-    CompetitorCheck(competitors=["Chase", "Wells Fargo", "Citi"], on_fail="exception"),
+    CompetitorCheck(competitors=["Chase", "Chase Bank", "Wells Fargo", "Citi"], on_fail="exception"),
 )
 
 # Validators run in order. If any fails, the guard raises/fixes/reasks.
