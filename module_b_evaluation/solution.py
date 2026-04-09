@@ -53,6 +53,11 @@ def run_agent(inputs):
 
 
 # --- SOLUTION 2: Routing evaluator ---
+# Checks if the supervisor routed the query to the correct agent.
+# Compares the predicted intent (e.g. "policy", "account_status", "escalation")
+# against the ground-truth intent from the dataset. Binary: 1.0 if correct, 0.0 if not.
+# This is the most critical metric — wrong routing = wrong agent = wrong answer,
+# regardless of how good each individual agent is.
 def routing_evaluator(run, example):
     predicted = run.outputs.get("intent", "")
     expected = example.outputs.get("intent", "")
@@ -61,6 +66,12 @@ def routing_evaluator(run, example):
 
 
 # --- SOLUTION 3: Faithfulness evaluator ---
+# LLM-as-judge: checks if the answer is grounded in the retrieved context.
+# A judge LLM reads the context + answer and scores how well every claim
+# in the answer is supported by the context. This catches hallucination —
+# when the model invents facts not present in the retrieved documents.
+# Note: faithfulness ≠ factual correctness. An answer can be faithful to
+# WRONG context (retriever returned the wrong doc but the LLM quoted it accurately).
 FAITHFULNESS_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
      "You are an expert evaluator. Assess whether the answer is faithful "
@@ -102,6 +113,11 @@ def faithfulness_evaluator(run, example):
 
 
 # --- SOLUTION 4: Correctness evaluator ---
+# LLM-as-judge: checks if the answer is factually correct by comparing it
+# to the expected (ground-truth) answer from the dataset. Unlike faithfulness,
+# this evaluator doesn't care about context — it only asks "did the agent get
+# the right facts?" (e.g. correct dollar amounts, percentages, thresholds).
+# Scores: 1.0 = all key facts match, 0.5 = partial, 0.0 = wrong/missing.
 CORRECTNESS_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
      "You are an expert evaluator. Compare the AI's answer to the expected answer.\n\n"
@@ -181,6 +197,29 @@ mrr_queries = [
     {"query": "When is two-factor authentication required?", "relevant_source": "fraud_policy.md"},
 ]
 
+# MRR (Mean Reciprocal Rank) = (1/N) * Σ (1/rank_i)
+# For each query, find the position (rank) of the first relevant document.
+# The reciprocal rank is 1/rank: rank 1 → 1.0, rank 2 → 0.5, rank 3 → 0.33.
+# If the relevant document isn't found, RR = 0.
+# MRR averages these across all queries. MRR = 1.0 means every query's
+# relevant doc was ranked first; lower scores mean the retriever buries it.
+#
+# Example with 3 queries:
+#   Query                  | Correct doc at position | Reciprocal Rank
+#   -----------------------|-------------------------|----------------
+#   "overdraft fee?"       | 1st result              | 1/1 = 1.00
+#   "wire transfer cost?"  | 3rd result              | 1/3 = 0.33
+#   "loan APR?"            | 2nd result              | 1/2 = 0.50
+#
+#   MRR = (1.00 + 0.33 + 0.50) / 3 = 0.61
+#
+# Interpretation:
+#   MRR = 1.0  → the right doc is always the #1 result (perfect retriever)
+#   MRR = 0.5  → on average, the right doc is around position 2
+#   MRR → 0    → the retriever consistently buries or misses the right doc
+#
+# It only cares about the FIRST relevant result — ideal for RAG, where
+# you typically need just one good chunk to answer the question.
 reciprocal_ranks = []
 
 for item in mrr_queries:
@@ -248,11 +287,14 @@ try:
         print(f"\n  Test case {i+1}: {tc.input}")
         print(f"  Response: {item['response'][:150]}")
         for metric in [faithfulness, relevancy, hallucination]:
-            metric.measure(tc)
-            print(f"    {metric.__class__.__name__}: {metric.score:.2f} "
-                  f"({'PASS' if metric.is_successful() else 'FAIL'})")
-            if hasattr(metric, 'reason') and metric.reason:
-                print(f"      Reason: {metric.reason[:120]}")
+            try:
+                metric.measure(tc)
+                print(f"    {metric.__class__.__name__}: {metric.score:.2f} "
+                      f"({'PASS' if metric.is_successful() else 'FAIL'})")
+                if hasattr(metric, 'reason') and metric.reason:
+                    print(f"      Reason: {metric.reason[:120]}")
+            except Exception as e:
+                print(f"    {metric.__class__.__name__}: SKIPPED ({type(e).__name__}: {str(e)[:100]})")
 
 except ImportError:
     print("  DeepEval not installed. Run: pip install deepeval")
@@ -322,6 +364,11 @@ print("SEGMENT 11: DATASET ENHANCEMENT")
 print("=" * 60)
 
 # --- SOLUTION 9: Add edge-case examples ---
+# These examples are appended to the dataset but NOT evaluated here.
+# The evaluate() call in Segment 6 already ran before these were added.
+# Next time you run evaluate() against this dataset, the new examples
+# will be included automatically. This demonstrates dataset curation
+# as a separate step from evaluation.
 new_examples = [
     # Multi-part question (asks two things at once)
     {
@@ -378,12 +425,19 @@ print("=" * 60)
 ensure_solution_hc_dataset()
 
 # --- Evaluators from demo (provided) ---
+# Same binary routing check as Segment 6: did the supervisor pick the right agent?
+# Included here to confirm that changing top_k doesn't break routing.
 def routing_evaluator_hc(run, example):
     predicted = run.outputs.get("intent", "")
     expected = example.outputs.get("intent", "")
     return {"key": "routing_accuracy", "score": 1.0 if predicted == expected else 0.0}
 
 
+# Extracts numbers, dollar amounts, and percentages from the expected answer
+# (e.g. "$35", "3", "$105") and checks how many appear in the actual response.
+# Score = matches / total key terms. This is a fast, deterministic alternative
+# to LLM-as-judge — no API call needed, but only catches missing numbers,
+# not semantic errors like misattributing a fee to the wrong category.
 def keyword_correctness_hc(run, example):
     import re
     actual = run.outputs.get("answer", "").lower()
@@ -396,6 +450,10 @@ def keyword_correctness_hc(run, example):
 
 
 # --- SOLUTION 10: Correctness evaluator ---
+# LLM-as-judge comparing the agent's answer to the ground-truth expected answer.
+# Complements keyword_correctness: keywords catch missing numbers, but this
+# catches semantic errors (e.g. saying "$35 monthly fee" when it's an overdraft fee).
+# Together they show whether top_k=5 gives the LLM enough context to get facts right.
 HC_CORRECTNESS_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
      "You are an expert evaluator. Compare the AI's answer to the expected answer.\n\n"
