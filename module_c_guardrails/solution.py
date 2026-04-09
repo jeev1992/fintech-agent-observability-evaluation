@@ -121,6 +121,12 @@ try:
             print(f"  BLOCKED: {text[:60]}")
 
     # --- SOLUTION 3: Full guard with all validators ---
+    # Validators run sequentially in the order listed. If any fails
+    # (on_fail="exception"), the remaining validators are skipped.
+    # Order is cheapest/fastest first to short-circuit before slower checks:
+    #   1. RegexMatch — SSN pattern (<1ms, no model)
+    #   2. ToxicLanguage — local ALBERT model (~100ms first load)
+    #   3. CompetitorCheck — LLM call to detect competitor names (~500ms)
     full_guard = Guard().use_many(
         RegexMatch(
             regex=r"(?s)^(?!.*\b\d{3}-\d{2}-\d{4}\b).*$",
@@ -193,6 +199,22 @@ for query in pipeline_tests:
     response = safe_pipeline(query)
     print(f"  Response: {response[:150]}...")
 
+# --- Output guard demo: what if the agent's RESPONSE contains blocked content? ---
+print("\n--- Output Guard Demo (simulated agent responses) ---")
+if guardrails_available and full_guard is not None:
+    simulated_responses = [
+        ("Clean response", "The overdraft fee is $35 per transaction."),
+        ("SSN leak", "Your SSN on file is 123-45-6789. Your balance is $12,450."),
+        ("Competitor mention", "Unlike Chase Bank, we offer better rates."),
+        ("Toxic language", "You're an idiot for overdrafting your account."),
+    ]
+    for label, response in simulated_responses:
+        try:
+            full_guard.validate(response)
+            print(f"  [OUTPUT PASS]    {label}: {response[:60]}")
+        except Exception:
+            print(f"  [OUTPUT BLOCKED] {label}: {response[:60]}")
+
 
 # ===================================================================
 # OUTPUT GUARD: Presidio PII Redaction (Strategy 3 — ML/NER)
@@ -205,6 +227,8 @@ print("=" * 60)
 try:
     from presidio_analyzer import AnalyzerEngine
     from presidio_anonymizer import AnonymizerEngine
+    import logging
+    logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
 
     # --- SOLUTION 5: Presidio setup ---
     analyzer = AnalyzerEngine()
@@ -219,7 +243,10 @@ try:
     ]
 
     for text in pii_samples:
-        results = analyzer.analyze(text=text, language="en")
+        results = analyzer.analyze(
+            text=text, language="en",
+            entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "URL"],
+        )
         if results:
             anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
             print(f"\n  BEFORE: {text}")
@@ -362,7 +389,10 @@ def guarded_pipeline(query: str) -> str:
     # Step 4: Redact PII from input (Presidio)
     clean_query = query
     if presidio_available and analyzer and anonymizer:
-        input_pii = analyzer.analyze(text=query, language="en")
+        input_pii = analyzer.analyze(
+            text=query, language="en",
+            entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "URL"],
+        )
         if input_pii:
             clean_query = anonymizer.anonymize(text=query, analyzer_results=input_pii).text
             print(f"    [INPUT PII] Redacted: {query[:50]} → {clean_query[:50]}")
@@ -380,7 +410,10 @@ def guarded_pipeline(query: str) -> str:
 
     # Step 7: Redact PII from output
     if presidio_available and analyzer and anonymizer:
-        output_pii = analyzer.analyze(text=answer, language="en")
+        output_pii = analyzer.analyze(
+            text=answer, language="en",
+            entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "URL"],
+        )
         if output_pii:
             answer = anonymizer.anonymize(text=answer, analyzer_results=output_pii).text
             print(f"    [OUTPUT PII] Redacted sensitive data from response")
