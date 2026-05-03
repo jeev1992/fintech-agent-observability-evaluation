@@ -15,6 +15,7 @@ per-intent analysis - lives in your LangSmith dashboard.
 import os
 import sys
 import time
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -24,6 +25,9 @@ from langchain_community.callbacks.manager import get_openai_callback
 load_dotenv()
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "project"))
 from fintech_support_agent import build_support_agent, ask

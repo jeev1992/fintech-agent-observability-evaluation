@@ -31,6 +31,7 @@ What this demo does NOT cover (see exercise.py / solution.py):
 
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from langsmith import Client
@@ -41,6 +42,9 @@ from eval_dataset import DEMO_HC_DATASET_NAME, HILL_CLIMB_EXAMPLES
 load_dotenv()
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "project"))
 from fintech_support_agent import build_support_agent, ask
