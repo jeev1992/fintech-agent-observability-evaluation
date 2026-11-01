@@ -7,6 +7,7 @@ Full working solution: evaluators, MRR, DeepEval metrics, G-Eval.
 import os
 import sys
 import json
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -19,6 +20,9 @@ from eval_dataset import SOLUTION_DATASET_NAME, EVAL_EXAMPLES, ensure_solution_d
 from eval_dataset import SOLUTION_HC_DATASET_NAME, ensure_solution_hc_dataset
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 os.environ.setdefault("DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "300")

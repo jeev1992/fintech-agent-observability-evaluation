@@ -29,8 +29,8 @@ This demo shows:
 
 Prerequisites:
   pip install guardrails-ai presidio-analyzer presidio-anonymizer
-  guardrails hub install hub://guardrails/regex_match
-  guardrails hub install hub://guardrails/competitor_check
+  pip install --no-deps ../vendor/guardrails_hub_wheels/*.whl  # guardrails hub install's
+                                                                 # backend is decommissioned
 """
 
 import os
@@ -367,8 +367,7 @@ try:
 except ImportError:
     print("\n  Guardrails AI not installed. Run:")
     print("    pip install guardrails-ai")
-    print("    guardrails hub install hub://guardrails/regex_match")
-    print("    guardrails hub install hub://guardrails/competitor_check")
+    print("    pip install --no-deps vendor/guardrails_hub_wheels/*.whl")
     print("  Skipping Guardrails AI demo.\n")
     guardrails_ai_available = False
 
@@ -575,3 +574,7 @@ In the exercise, you'll build:
   TODO 7:   OpenAI Moderation API (Part 3)
   TODO 8:   Prompt injection classifier (Part 4)
 """)
+
+# Skip interpreter teardown — chromadb/torch/grpc native libs SIGBUS at exit on macOS arm64
+sys.stdout.flush()
+os._exit(0)

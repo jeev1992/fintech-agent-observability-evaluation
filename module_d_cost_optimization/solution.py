@@ -7,6 +7,7 @@ Complete solution for the cost optimization exercise.
 import os
 import sys
 import time
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -15,6 +16,9 @@ import tiktoken
 from langchain_community.callbacks.manager import get_openai_callback
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 

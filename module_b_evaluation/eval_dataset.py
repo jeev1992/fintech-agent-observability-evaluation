@@ -249,7 +249,7 @@ HILL_CLIMB_EXAMPLES = [
     {
         "inputs": {"question": "What is the late payment fee for loans?"},
         "outputs": {
-            "answer": "The late payment fee is $39 or 5% of the payment amount, whichever is greater, charged after a 15-day grace period.",
+            "answer": "The late payment fee is $39 or 5% of the payment amount, whichever is less, charged after a 15-day grace period.",
             "intent": "policy",
         },
     },

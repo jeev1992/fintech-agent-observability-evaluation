@@ -96,19 +96,16 @@ Additionally, Presidio requires the spaCy NER model for detecting names, address
 python -m spacy download en_core_web_lg
 ```
 
-Before installing hub validators, you need a free Guardrails Hub token:
-
-1. Go to https://hub.guardrailsai.com/keys and sign up / log in
-2. Copy your token
-3. Run `guardrails configure` and paste the token when prompted
-
-Then install the validators:
+`guardrails hub install` depends on a Guardrails backend that has since been
+decommissioned, so it no longer works (with or without a hub token). Install
+the three validators from the wheels vendored in this repo instead:
 
 ```bash
-guardrails hub install hub://guardrails/regex_match
-guardrails hub install hub://guardrails/toxic_language
-guardrails hub install hub://guardrails/competitor_check
+pip install --no-deps vendor/guardrails_hub_wheels/*.whl
 ```
+
+See the [main README's setup step 7](../README.md#7-install-guardrails-hub-validators-module-c)
+for details.
 
 ```bash
 # Run from the project root directory

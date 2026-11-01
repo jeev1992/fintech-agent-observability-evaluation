@@ -20,18 +20,21 @@ TODOs:
 
 Prerequisites:
   pip install guardrails-ai presidio-analyzer presidio-anonymizer
-  guardrails hub install hub://guardrails/regex_match
-  guardrails hub install hub://guardrails/toxic_language
-  guardrails hub install hub://guardrails/competitor_check
+  pip install --no-deps ../vendor/guardrails_hub_wheels/*.whl  # guardrails hub install's
+                                                                 # backend is decommissioned
 """
 
 import os
 import re
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 
@@ -232,7 +235,9 @@ anonymizer = None
 
 # Test PII detection:
 pii_samples = [
-    "My name is Alice Johnson and my SSN is 123-45-6789.",
+    # Note: Presidio's UsSsnRecognizer explicitly blocklists 123-45-6789
+    # as a known dummy/placeholder value, so a different number is used here.
+    "My name is Alice Johnson and my SSN is 234-56-7890.",
     "Please email me at alice@example.com or call 555-123-4567.",
     "My credit card number is 4111-1111-1111-1111.",
     "What is the overdraft fee?",  # No PII — should pass through unchanged
@@ -386,3 +391,7 @@ for query in injection_tests:
         print(f"  [INJECTION] {query[:70]}")
     else:
         print(f"  [SAFE]      {query[:70]}")
+
+# Skip interpreter teardown — chromadb/torch/grpc native libs SIGBUS at exit on macOS arm64
+sys.stdout.flush()
+os._exit(0)

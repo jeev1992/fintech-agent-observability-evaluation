@@ -16,6 +16,7 @@ Segments covered:
 import os
 import sys
 import json
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -28,6 +29,9 @@ from eval_dataset import EXERCISE_DATASET_NAME, EVAL_EXAMPLES, ensure_exercise_d
 from eval_dataset import EXERCISE_HC_DATASET_NAME, ensure_exercise_hc_dataset
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 

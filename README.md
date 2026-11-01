@@ -195,19 +195,39 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_lg
 ```
 
-Before installing hub validators, you need a free Guardrails Hub token:
-
-1. Go to https://hub.guardrailsai.com/keys and sign up / log in
-2. Copy your token
-3. Run `guardrails configure` and paste the token when prompted
-
-Then install the validators:
-
-```bash
-guardrails hub install hub://guardrails/regex_match
-guardrails hub install hub://guardrails/toxic_language
-guardrails hub install hub://guardrails/competitor_check
-```
+> **Important**: `guardrails hub install hub://...` depends on `hub.api.guardrailsai.com`,
+> which has been decommissioned (DNS no longer resolves) — the command below will fail
+> with a connection error even with a valid token. This repo vendors working copies of
+> the three validators (built from the last successful hub install) in
+> `vendor/guardrails_hub_wheels/`. Install from there instead:
+>
+> ```bash
+> pip install --no-deps vendor/guardrails_hub_wheels/*.whl
+> ```
+>
+> If you still have an old, expired token in `~/.guardrailsrc` from a previous setup,
+> remove the `token=` line from that file (or delete the file) — the pinned
+> `guardrails-ai==0.6.0` client raises `ExpiredTokenError` on startup if it finds an
+> expired token locally, even though hub tokens are no longer required at all
+> (see https://guardrailsai.com/hub/keys).
+>
+> <details>
+> <summary>Original instructions (kept for reference — will fail as of 2026-09)</summary>
+>
+> Before installing hub validators, you needed a free Guardrails Hub token:
+>
+> 1. Go to https://hub.guardrailsai.com/keys and sign up / log in
+> 2. Copy your token
+> 3. Run `guardrails configure` and paste the token when prompted
+>
+> Then install the validators:
+>
+> ```bash
+> guardrails hub install hub://guardrails/regex_match
+> guardrails hub install hub://guardrails/toxic_language
+> guardrails hub install hub://guardrails/competitor_check
+> ```
+> </details>
 
 > **Note**: Presidio requires the spaCy `en_core_web_lg` model for NER-based PII detection. The `spacy download` command above installs it (~560 MB).
 
@@ -483,11 +503,19 @@ pip install deepeval
 **Guardrails Hub validators not found**
 ```bash
 pip install -r requirements.txt  # installs guardrails-ai from GitHub (PyPI is quarantined)
-guardrails configure  # paste your free token from https://hub.guardrailsai.com/keys
-guardrails hub install hub://guardrails/regex_match
-guardrails hub install hub://guardrails/toxic_language
-guardrails hub install hub://guardrails/competitor_check
+pip install --no-deps vendor/guardrails_hub_wheels/*.whl  # guardrails hub install is dead — see step 7
 ```
+
+**`guardrails.hub_token.token.ExpiredTokenError: Your token has expired`**
+
+This is a leftover local check from before Guardrails Hub tokens were retired. Remove the
+`token=` line from `~/.guardrailsrc` (or delete the file) — no token is needed anymore.
+
+**`guardrails hub install` fails with a connection/DNS error**
+```
+Could not resolve host: hub.api.guardrailsai.com
+```
+That backend has been decommissioned. Use the vendored wheels instead (see step 7).
 
 **Presidio not installed**
 ```bash

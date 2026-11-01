@@ -358,9 +358,7 @@ Agent Response
 
 ```bash
 pip install -r requirements.txt  # installs guardrails-ai from GitHub (PyPI is quarantined)
-guardrails hub install hub://guardrails/regex_match
-guardrails hub install hub://guardrails/toxic_language
-guardrails hub install hub://guardrails/competitor_check
+pip install --no-deps vendor/guardrails_hub_wheels/*.whl  # guardrails hub install's backend is dead
 ```
 
 ### Basic Usage

@@ -14,10 +14,14 @@ and per-intent cost differences - no custom infrastructure needed.
 import os
 import sys
 import time
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 

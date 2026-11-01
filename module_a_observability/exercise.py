@@ -10,10 +10,14 @@ Segments covered:
 
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# chromadb's posthog telemetry client is incompatible with posthog>=3 — silence it
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
 # ---------------------------------------------------------------------------
 # TODO 1: Enable LangSmith tracing
